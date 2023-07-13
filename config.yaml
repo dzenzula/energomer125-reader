@@ -1,0 +1,26 @@
+mssql:
+  server: KRR-SQL-PACLX02
+  user_id: "%mssql_login"
+  password: "%mssql_password"
+  database: KRR-PA-RAW-Energy
+
+connection:
+  host: 10.21.2.139
+  port: 52321
+  type: tcp
+
+commands:
+  - command: EMA !125m7825 %0
+    id_measuring: 1688129915
+    name: ASUWATER_WaterPipe_IngulSouth_Pipe3Pump_Fwater
+
+  - command: EMA !125m7827 %0
+    id_measuring: 1688129916
+    name: ASUWATER_WaterPipe_IngulSouth_Pipe1Pump_Fwater
+
+v1: 0
+v2: 0
+v3: 0
+v4: 0
+
+query_insert: INSERT INTO [dbo].[raw_source_132_analog] ([NAME], [id_measuring], [VALUE], [TIMESTAMP], [QUALITY], [BATCHID]) VALUES (?, ?, ?, ?, ?, ?)
