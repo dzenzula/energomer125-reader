@@ -1,12 +1,13 @@
 package configurations
 
 import (
-	"io/ioutil"
+	"fmt"
 	l "main/logger"
 	"main/models"
 	"os"
 
-	"gopkg.in/yaml.v2"
+	"github.com/fsnotify/fsnotify"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -14,24 +15,34 @@ var (
 )
 
 func InitConfig() {
-	var config_files [2]string
-	configName := "config.yaml"
-	config_files[0] = "configurations/" + configName
-	config_files[1] = configName
-	for i := 0; i < len(config_files); i++ {
-		if _, err := os.Stat(config_files[i]); err == nil {
-			configName = config_files[i]
+	configFiles := []string{"configurations/config.yaml", "config.yaml"}
+	var configName string
+	for _, configFile := range configFiles {
+		if _, err := os.Stat(configFile); err == nil {
+			configName = configFile
 			break
 		}
 	}
 
-	data, err := ioutil.ReadFile(configName)
+	viper.SetConfigFile(configName)
+	err := viper.ReadInConfig()
 	if err != nil {
 		l.Fatal(err)
 	}
 
-	err = yaml.Unmarshal(data, &GlobalConfig)
+	err = viper.Unmarshal(&GlobalConfig)
 	if err != nil {
 		l.Fatal(err)
 	}
+
+	// Настраиваем отслеживание изменений в конфигурационном файле
+	viper.WatchConfig()
+	viper.OnConfigChange(func(e fsnotify.Event) {
+		fmt.Println("Config file changed", e.Name)
+		l.Info("Config file changed", e.Name)
+		err := viper.Unmarshal(&GlobalConfig)
+		if err != nil {
+			l.Fatal(err)
+		}
+	})
 }
