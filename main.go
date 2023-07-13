@@ -9,7 +9,6 @@ import (
 	"main/models"
 	"math"
 	"net"
-	"strings"
 	"time"
 
 	_ "github.com/denisenkom/go-mssqldb"
@@ -19,6 +18,7 @@ func main() {
 	l.InitLogger()
 	c.InitConfig()
 	l.Info("Service started!")
+	fmt.Println("Service started!")
 
 	for {
 		//waitHalfHour()
@@ -32,7 +32,7 @@ func main() {
 }
 
 func getData(energometer models.Command) {
-	tcpServer, err := net.ResolveTCPAddr(c.GlobalConfig.Connection.Type, c.GlobalConfig.Connection.Host+":"+c.GlobalConfig.Connection.Port)
+	tcpServer, err := net.ResolveTCPAddr(c.GlobalConfig.Connection.Type, c.GlobalConfig.Connection.Host+":"+energometer.Port)
 	if err != nil {
 		l.Error("ResolveTCPAddr failed:", err.Error())
 		return
@@ -56,27 +56,35 @@ func getData(energometer models.Command) {
 		l.Info("Command sent successfully!")
 	}
 
-	response := make([]byte, 512)
-	conn.Read(response[:])
-	date := bytesToDateTime(response[0:6])
-	v1 := bytesToFloat32(response[14:18])
-	v2 := bytesToFloat32(response[18:22])
-	// v3 := bytesToFloat32(response[22:26])
-	// v4 := bytesToFloat32(response[26:30])
+	response := make([]byte, 0)
+	buffer := make([]byte, 512)
+	for {
+		n, err := conn.Read(buffer)
+		if err != nil {
+			fmt.Println("Read failed:", err)
+			break
+		}
 
-	contains := strings.Contains(energometer.Command, "7825")
+		response = append(response, buffer[:n]...)
 
-	if contains && c.GlobalConfig.V1 == int(v1) && c.GlobalConfig.V2 == int(v2) {
-		insertData(v1, energometer, date)
-	} else if !contains && c.GlobalConfig.V1 == int(v1) && c.GlobalConfig.V2 == int(v2) {
-		conn.Close()
-		getData(energometer)
-		return
-	} else {
-		insertData(v1, energometer, date)
+		if n < len(buffer) {
+			break
+		}
 	}
 
-	//l.Info("Response:", response)
+	date := bytesToDateTime(response[0:6])
+	q1 := bytesToFloat32(response[24:28])
+
+	if len(response) < 262 {
+		insertData(q1, energometer, date)
+	}
+
+	l.Info("Response:")
+	fmt.Println("Command:", energometer.Command)
+	fmt.Println("Date:", date)
+	fmt.Println("Response:", response)
+	fmt.Println("Q1:", q1)
+	l.Info("Q1:", q1)
 
 	conn.Close()
 }
@@ -86,7 +94,7 @@ func insertData(v1 float32, energometr models.Command, date string) {
 
 	_, err := db.Exec(c.GlobalConfig.QueryInsert, energometr.Name, energometr.IDMeasuring, v1, date, 192, nil)
 	if err != nil {
-		l.Error("Ошибка при выполнении SQL-запроса:", err.Error())
+		l.Error("Error during SQL query execution:", err.Error())
 	}
 
 	db.Close()
@@ -128,15 +136,13 @@ func bytesToDateTime(bytes []byte) string {
 }
 
 func waitTenMinutes() {
-	now := time.Now()
+	duration := time.Until(time.Now().Truncate(c.GlobalConfig.Timer).Add(c.GlobalConfig.Timer))
+	t := time.Now().Add(duration).Format("2006-01-02 15:04:05")
 
-	minutesRemaining := 10 - (now.Minute() % 10)
+	l.Info("Time until the next iteration:", t)
+	fmt.Println("Time until the next iteration:", t)
 
-	nextTime := now.Add(time.Duration(minutesRemaining) * time.Minute)
-
-	l.Info("Time until the next 10 minutes:", nextTime)
-
-	time.Sleep(time.Until(nextTime))
+	time.Sleep(duration)
 }
 
 // func waitHalfHour() {
