@@ -59,11 +59,14 @@ func getData(energometer models.Command) {
 	buffer := make([]byte, 512)
 
 	timeout := time.AfterFunc(120*time.Second, func() {
-		conn.Close()
 		l.Error("Timeout при чтении данных")
 		getData(energometer)
+		if !isConnectionClosed(conn) {
+			conn.Close()
+		}
 		return
 	})
+
 	for {
 		n, err := conn.Read(buffer)
 		if err != nil {
@@ -94,7 +97,9 @@ func getData(energometer models.Command) {
 	fmt.Println("Q1:", q1)
 	l.Info("Q1:", q1)
 
-	conn.Close()
+	if !isConnectionClosed(conn) {
+		conn.Close()
+	}
 }
 
 func insertData(v1 float32, energometr models.Command, date string) {
@@ -152,4 +157,9 @@ func wait() {
 	fmt.Println("Time until the next iteration:", t)
 
 	time.Sleep(duration)
+}
+
+func isConnectionClosed(conn net.Conn) bool {
+	err := conn.Close()
+	return err != nil
 }
