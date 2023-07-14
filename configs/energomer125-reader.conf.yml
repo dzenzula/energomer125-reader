@@ -1,6 +1,6 @@
 mssql:
   server: KRR-SQL-PACLX02
-  user_id: "%mssql_user%"
+  user_id: "EUROPE\\%mssql_user%"
   password: "%mssql_password%"
   database: KRR-PA-RAW-Energy
 
