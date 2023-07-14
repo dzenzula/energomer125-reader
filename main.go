@@ -91,8 +91,9 @@ func getData(energometer models.Command) {
 
 func insertData(v1 float32, energometr models.Command, date string) {
 	db := ConnectMs()
+	q := c.GlobalConfig.Query_Insert
 
-	_, err := db.Exec(c.GlobalConfig.QueryInsert, energometr.Name, energometr.IDMeasuring, v1, date, 192, nil)
+	_, err := db.Exec(q, energometr.Name, energometr.IDMeasuring, v1, date, 192, nil)
 	if err != nil {
 		l.Error("Error during SQL query execution:", err.Error())
 	}
@@ -101,7 +102,7 @@ func insertData(v1 float32, energometr models.Command, date string) {
 }
 
 func ConnectMs() *sql.DB {
-	connString := fmt.Sprintf("server=%s;user id=%s;password=%s;database=%s", c.GlobalConfig.MSSQL.Server, c.GlobalConfig.MSSQL.UserID, c.GlobalConfig.MSSQL.Password, c.GlobalConfig.MSSQL.Database)
+	connString := fmt.Sprintf("server=%s;user id=%s;password=%s;database=%s", c.GlobalConfig.MSSQL.Server, c.GlobalConfig.MSSQL.User_Id, c.GlobalConfig.MSSQL.Password, c.GlobalConfig.MSSQL.Database)
 	conn, conErr := sql.Open("mssql", connString)
 	if conErr != nil {
 		l.Error("Error opening database connection:", conErr.Error())

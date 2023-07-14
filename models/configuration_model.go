@@ -4,7 +4,7 @@ import "time"
 
 type MSSQLConfig struct {
 	Server   string `yaml:"server"`
-	UserID   string `yaml:"user_id"`
+	User_Id  string `yaml:"user_id"`
 	Password string `yaml:"password"`
 	Database string `yaml:"database"`
 }
@@ -22,9 +22,9 @@ type Connection struct {
 }
 
 type Configuration struct {
-	MSSQL       MSSQLConfig   `yaml:"mssql"`
-	Commands    []Command     `yaml:"commands"`
-	Connection  Connection    `yaml:"connection"`
-	QueryInsert string        `yaml:"query_insert"`
-	Timer       time.Duration `yaml:"timer"`
+	MSSQL        MSSQLConfig   `yaml:"mssql"`
+	Commands     []Command     `yaml:"commands"`
+	Connection   Connection    `yaml:"connection"`
+	Query_Insert string        `yaml:"query_insert"`
+	Timer        time.Duration `yaml:"timer"`
 }
