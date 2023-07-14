@@ -15,7 +15,7 @@ var (
 )
 
 func InitConfig() {
-	configFiles := []string{"configurations/config.yaml", "config.yaml"}
+	configFiles := []string{"configurations/config.yaml", "config.yaml", "energomer125-reader.conf.yml"}
 	var configName string
 	for _, configFile := range configFiles {
 		if _, err := os.Stat(configFile); err == nil {
