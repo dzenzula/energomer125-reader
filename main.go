@@ -58,10 +58,16 @@ func getData(energometer models.Command) {
 
 	response := make([]byte, 0)
 	buffer := make([]byte, 512)
+
+	timeout := time.AfterFunc(60*time.Second, func() {
+		conn.Close()
+		l.Error("Timeout при чтении данных")
+	})
 	for {
-		n, err := conn.Read(buffer)
+		n, err := conn.Read(response)
 		if err != nil {
 			fmt.Println("Read failed:", err)
+			l.Error("Read failed:", err)
 			break
 		}
 
@@ -71,6 +77,7 @@ func getData(energometer models.Command) {
 			break
 		}
 	}
+	timeout.Stop()
 
 	date := bytesToDateTime(response[0:6])
 	q1 := bytesToFloat32(response[24:28])
