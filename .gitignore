@@ -1,4 +1,8 @@
-logfile.log
+*.log
 configurations/*.yaml
 .vscode
 *.exe
+energomer125-reader
+deploy/*
+/*.yml
+*.sdb*
