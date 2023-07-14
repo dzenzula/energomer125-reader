@@ -1,0 +1,14 @@
+[Unit]
+Description = energomer125-reader daemon
+After = network.target
+
+[Service]
+Type = simple
+WorkingDirectory = /home/services/energomer125-reader
+ExecStart = /home/services/energomer125-reader/energomer125-reader
+Restart = always
+RestartSec = 30
+TimeoutStopSec = 5
+
+[Install]
+WantedBy = multi-user.target
