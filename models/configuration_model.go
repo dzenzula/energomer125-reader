@@ -10,10 +10,10 @@ type MSSQLConfig struct {
 }
 
 type Command struct {
-	Command     string `yaml:"command"`
-	Port        string `yaml:"port"`
-	IDMeasuring int    `yaml:"id_measuring"`
-	Name        string `yaml:"name"`
+	Command      string `yaml:"command"`
+	Port         string `yaml:"port"`
+	Id_Measuring int    `yaml:"id_measuring"`
+	Name         string `yaml:"name"`
 }
 
 type Connection struct {
