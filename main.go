@@ -21,8 +21,7 @@ func main() {
 	fmt.Println("Service started!")
 
 	for {
-		//waitHalfHour()
-		waitTenMinutes()
+		wait()
 
 		for _, c := range c.GlobalConfig.Commands {
 			l.Info("Command:", c.Command)
@@ -59,12 +58,14 @@ func getData(energometer models.Command) {
 	response := make([]byte, 0)
 	buffer := make([]byte, 512)
 
-	timeout := time.AfterFunc(60*time.Second, func() {
+	timeout := time.AfterFunc(120*time.Second, func() {
 		conn.Close()
 		l.Error("Timeout при чтении данных")
+		getData(energometer)
+		return
 	})
 	for {
-		n, err := conn.Read(response)
+		n, err := conn.Read(buffer)
 		if err != nil {
 			fmt.Println("Read failed:", err)
 			l.Error("Read failed:", err)
@@ -143,7 +144,7 @@ func bytesToDateTime(bytes []byte) string {
 	return formattedDateTime
 }
 
-func waitTenMinutes() {
+func wait() {
 	duration := time.Until(time.Now().Truncate(c.GlobalConfig.Timer).Add(c.GlobalConfig.Timer))
 	t := time.Now().Add(duration).Format("2006-01-02 15:04:05")
 
@@ -152,22 +153,3 @@ func waitTenMinutes() {
 
 	time.Sleep(duration)
 }
-
-// func waitHalfHour() {
-// 	now := time.Now()
-// 	minutes := now.Minute()
-// 	seconds := now.Second()
-
-// 	var waitSeconds int
-// 	if minutes >= 30 {
-// 		waitSeconds = (60 - minutes) * 60
-// 	} else {
-// 		waitSeconds = (30 - minutes) * 60
-// 	}
-
-// 	nextTime := now.Add(time.Duration(waitSeconds-seconds) * time.Second)
-
-// 	l.Info("Time until the next 30 minutes:", nextTime)
-
-// 	time.Sleep(time.Until(nextTime))
-// }
