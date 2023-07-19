@@ -85,6 +85,11 @@ func getData(energometer models.Command) {
 
 	date := bytesToDateTime(response[0:6])
 	if !checkDate(date) {
+		l.Error("Date is wrong! Trying to get the right date...")
+		getData(energometer)
+		if !isConnectionClosed(conn) {
+			conn.Close()
+		}
 		return
 	}
 
@@ -172,7 +177,7 @@ func checkDate(date string) bool {
 	layout := "2006-01-02"
 	dateTime, err := time.Parse(layout, date[:10])
 	if err != nil {
-		l.Info("Ошибка при преобразовании строки в дату:", err)
+		l.Error("Ошибка при преобразовании строки в дату:", err)
 		return false
 	}
 
