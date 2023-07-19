@@ -84,6 +84,10 @@ func getData(energometer models.Command) {
 	timeout.Stop()
 
 	date := bytesToDateTime(response[0:6])
+	if !checkDate(date) {
+		return
+	}
+
 	q1 := bytesToFloat32(response[24:28])
 
 	if len(response) < 262 {
@@ -162,4 +166,23 @@ func wait() {
 func isConnectionClosed(conn net.Conn) bool {
 	err := conn.Close()
 	return err != nil
+}
+
+func checkDate(date string) bool {
+	layout := "2006-01-02"
+	dateTime, err := time.Parse(layout, date[:10])
+	if err != nil {
+		l.Info("Ошибка при преобразовании строки в дату:", err)
+		return false
+	}
+
+	currentDate := time.Now().Truncate(24 * time.Hour)
+	yesterdayDate := currentDate.Add(-24 * time.Hour)
+	tomorrowDate := currentDate.Add(24 * time.Hour)
+
+	if dateTime.After(yesterdayDate) && dateTime.Before(tomorrowDate) {
+		return true
+	}
+
+	return false
 }
