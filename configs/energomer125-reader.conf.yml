@@ -21,4 +21,4 @@ commands:
 
 query_insert: INSERT INTO [dbo].[raw_source_132_analog] ([NAME], [id_measuring], [VALUE], [TIMESTAMP], [QUALITY], [BATCHID]) VALUES (?, ?, ?, ?, ?, ?)
 
-timer: 1m
+timer: 5m
