@@ -58,8 +58,8 @@ func getData(energometer models.Command) {
 	response := make([]byte, 0)
 	buffer := make([]byte, 512)
 
-	timeout := time.AfterFunc(120*time.Second, func() {
-		l.Error("Timeout при чтении данных")
+	timeout := time.AfterFunc(c.GlobalConfig.Timeout, func() {
+		l.Error("Timeout on data reading...")
 		getData(energometer)
 		if !isConnectionClosed(conn) {
 			conn.Close()
@@ -83,6 +83,20 @@ func getData(energometer models.Command) {
 	}
 	timeout.Stop()
 
+	if len(response) == 261 {
+		processEnergometerResponse(response, energometer, conn)
+	} else {
+		l.Error("Received wrong data from the energometer:", response)
+		l.Info("Trying again to retrieve valid data...")
+		getData(energometer)
+	}
+
+	if !isConnectionClosed(conn) {
+		conn.Close()
+	}
+}
+
+func processEnergometerResponse(response []byte, energometer models.Command, conn *net.TCPConn) {
 	date := bytesToDateTime(response[0:6])
 	if !checkDate(date) {
 		l.Error("Date is wrong! Trying to get the right date...")
@@ -95,9 +109,7 @@ func getData(energometer models.Command) {
 
 	q1 := bytesToFloat32(response[24:28])
 
-	if len(response) < 262 {
-		insertData(q1, energometer, date)
-	}
+	insertData(q1, energometer, date)
 
 	l.Info("Response:")
 	fmt.Println("Command:", energometer.Command)
@@ -105,10 +117,6 @@ func getData(energometer models.Command) {
 	fmt.Println("Response:", response)
 	fmt.Println("Q1:", q1)
 	l.Info("Q1:", q1)
-
-	if !isConnectionClosed(conn) {
-		conn.Close()
-	}
 }
 
 func insertData(v1 float32, energometr models.Command, date string) {
@@ -120,7 +128,7 @@ func insertData(v1 float32, energometr models.Command, date string) {
 		l.Error("Error during SQL query execution:", err.Error())
 	}
 
-	db.Close()
+	defer db.Close()
 }
 
 func ConnectMs() *sql.DB {
@@ -169,15 +177,25 @@ func wait() {
 }
 
 func isConnectionClosed(conn net.Conn) bool {
-	err := conn.Close()
-	return err != nil
+	tempBuf := make([]byte, 1)
+	// Set a very short read deadline to check if the connection is closed
+	// This way, the function will not block for long if the connection is still open
+	conn.SetReadDeadline(time.Now())
+	_, err := conn.Read(tempBuf)
+	if err != nil {
+		// Check if the error is due to a timeout (i.e., connection is closed)
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			return true
+		}
+	}
+	return false
 }
 
 func checkDate(date string) bool {
 	layout := "2006-01-02"
 	dateTime, err := time.Parse(layout, date[:10])
 	if err != nil {
-		l.Error("Ошибка при преобразовании строки в дату:", err)
+		l.Error("Error when converting a string to a date:", err)
 		return false
 	}
 
