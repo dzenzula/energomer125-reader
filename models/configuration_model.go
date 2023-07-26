@@ -27,4 +27,5 @@ type Configuration struct {
 	Connection   Connection    `yaml:"connection"`
 	Query_Insert string        `yaml:"query_insert"`
 	Timer        time.Duration `yaml:"timer"`
+	Timeout      time.Duration `yaml:"timeout"`
 }
