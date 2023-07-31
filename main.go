@@ -25,7 +25,7 @@ func main() {
 
 		for _, i := range c.GlobalConfig.Commands {
 			l.Info("Command:", i.Command)
-			getData(i, c.GlobalConfig.MaxReadRetries)
+			getData(i, c.GlobalConfig.Max_Read_Retries)
 		}
 	}
 }

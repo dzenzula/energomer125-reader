@@ -22,11 +22,11 @@ type Connection struct {
 }
 
 type Configuration struct {
-	MSSQL          MSSQLConfig   `yaml:"mssql"`
-	Commands       []Command     `yaml:"commands"`
-	Connection     Connection    `yaml:"connection"`
-	Query_Insert   string        `yaml:"query_insert"`
-	Timer          time.Duration `yaml:"timer"`
-	Timeout        time.Duration `yaml:"timeout"`
-	MaxReadRetries int           `yaml:"max_read_retries"`
+	MSSQL            MSSQLConfig   `yaml:"mssql"`
+	Commands         []Command     `yaml:"commands"`
+	Connection       Connection    `yaml:"connection"`
+	Query_Insert     string        `yaml:"query_insert"`
+	Timer            time.Duration `yaml:"timer"`
+	Timeout          time.Duration `yaml:"timeout"`
+	Max_Read_Retries int           `yaml:"max_read_retries"`
 }
