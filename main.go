@@ -23,14 +23,19 @@ func main() {
 	for {
 		wait()
 
-		for _, c := range c.GlobalConfig.Commands {
-			l.Info("Command:", c.Command)
-			getData(c)
+		for _, i := range c.GlobalConfig.Commands {
+			l.Info("Command:", i.Command)
+			getData(i, c.GlobalConfig.MaxReadRetries)
 		}
 	}
 }
 
-func getData(energometer models.Command) {
+func getData(energometer models.Command, retriesLeft int) {
+	if retriesLeft <= 0 {
+		l.Error("Reached maximum retries, unable to retrieve valid data.")
+		return
+	}
+
 	tcpServer, err := net.ResolveTCPAddr(c.GlobalConfig.Connection.Type, c.GlobalConfig.Connection.Host+":"+energometer.Port)
 	if err != nil {
 		l.Error("ResolveTCPAddr failed:", err.Error())
@@ -50,20 +55,22 @@ func getData(energometer models.Command) {
 	_, err = conn.Write(bytecommand)
 	if err != nil {
 		l.Error("Write failed:", err.Error())
+		conn.Close()
+		l.Info("Retrying to send the command...")
+		getData(energometer, retriesLeft-1)
 		return
 	} else {
-		l.Info("Command sent successfully!")
+		t := fmt.Sprintf("Command: %s sent successfully!", energometer.Command)
+		l.Info(t)
 	}
 
 	response := make([]byte, 0)
-	buffer := make([]byte, 512)
+	buffer := make([]byte, 1024)
 
 	timeout := time.AfterFunc(c.GlobalConfig.Timeout, func() {
-		l.Error("Timeout on data reading...")
-		getData(energometer)
-		if !isConnectionClosed(conn) {
-			conn.Close()
-		}
+		l.Error("Timeout on data reading...\n Trying ")
+		conn.Close()
+		getData(energometer, retriesLeft-1)
 		return
 	})
 
@@ -76,6 +83,7 @@ func getData(energometer models.Command) {
 		}
 
 		response = append(response, buffer[:n]...)
+		l.Info("Bytes of information recieved:", n)
 
 		if n < len(buffer) {
 			break
@@ -84,11 +92,12 @@ func getData(energometer models.Command) {
 	timeout.Stop()
 
 	if len(response) == 261 {
-		processEnergometerResponse(response, energometer, conn)
+		processEnergometerResponse(response, energometer, conn, retriesLeft)
 	} else {
 		l.Error("Received wrong data from the energometer:", response)
 		l.Info("Trying again to retrieve valid data...")
-		getData(energometer)
+		conn.Close()
+		getData(energometer, retriesLeft-1)
 	}
 
 	if !isConnectionClosed(conn) {
@@ -96,11 +105,11 @@ func getData(energometer models.Command) {
 	}
 }
 
-func processEnergometerResponse(response []byte, energometer models.Command, conn *net.TCPConn) {
+func processEnergometerResponse(response []byte, energometer models.Command, conn *net.TCPConn, retriesLeft int) {
 	date := bytesToDateTime(response[0:6])
 	if !checkDate(date) {
 		l.Error("Date is wrong! Trying to get the right date...")
-		getData(energometer)
+		getData(energometer, retriesLeft-1)
 		if !isConnectionClosed(conn) {
 			conn.Close()
 		}
@@ -112,10 +121,6 @@ func processEnergometerResponse(response []byte, energometer models.Command, con
 	insertData(q1, energometer, date)
 
 	l.Info("Response:")
-	fmt.Println("Command:", energometer.Command)
-	fmt.Println("Date:", date)
-	fmt.Println("Response:", response)
-	fmt.Println("Q1:", q1)
 	l.Info("Q1:", q1)
 }
 
@@ -141,6 +146,9 @@ func ConnectMs() *sql.DB {
 	pingErr := conn.Ping()
 	if pingErr != nil {
 		l.Error(pingErr.Error())
+		time.Sleep(10 * time.Second)
+		l.Info("Trying to reconnect to the database...")
+		ConnectMs()
 	}
 
 	return conn
@@ -178,12 +186,9 @@ func wait() {
 
 func isConnectionClosed(conn net.Conn) bool {
 	tempBuf := make([]byte, 1)
-	// Set a very short read deadline to check if the connection is closed
-	// This way, the function will not block for long if the connection is still open
 	conn.SetReadDeadline(time.Now())
 	_, err := conn.Read(tempBuf)
 	if err != nil {
-		// Check if the error is due to a timeout (i.e., connection is closed)
 		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 			return true
 		}
