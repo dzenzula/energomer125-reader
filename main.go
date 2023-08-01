@@ -39,15 +39,15 @@ func getData(energometer models.Command, retriesLeft int) {
 	tcpServer, err := net.ResolveTCPAddr(c.GlobalConfig.Connection.Type, c.GlobalConfig.Connection.Host+":"+energometer.Port)
 	if err != nil {
 		l.Error("ResolveTCPAddr failed:", err.Error())
+		getData(energometer, retriesLeft-1)
 		return
 	}
 
 	conn, err := net.DialTCP(c.GlobalConfig.Connection.Type, nil, tcpServer)
 	if err != nil {
 		l.Error("Dial failed:", err.Error())
+		getData(energometer, retriesLeft-1)
 		return
-	} else {
-		l.Info("Dial success!")
 	}
 
 	bytecommand := []byte(energometer.Command)
@@ -120,7 +120,7 @@ func processEnergometerResponse(response []byte, energometer models.Command, con
 
 	insertData(q1, energometer, date)
 
-	l.Info("Response:")
+	//l.Info("Response:")
 	l.Info("Q1:", q1)
 }
 
@@ -204,7 +204,9 @@ func checkDate(date string) bool {
 		return false
 	}
 
-	currentDate := time.Now().Truncate(24 * time.Hour)
+	dateTime = dateTime.UTC()
+
+	currentDate := time.Now().UTC().Truncate(24 * time.Hour)
 	yesterdayDate := currentDate.Add(-24 * time.Hour)
 	tomorrowDate := currentDate.Add(24 * time.Hour)
 
