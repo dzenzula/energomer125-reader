@@ -24,7 +24,7 @@ func main() {
 		wait()
 
 		for _, i := range c.GlobalConfig.Commands {
-			l.Info("Command:", i.Command)
+			//l.Info("Command:", i.Command)
 			getData(i, c.GlobalConfig.Max_Read_Retries)
 		}
 	}
@@ -109,6 +109,7 @@ func processEnergometerResponse(response []byte, energometer models.Command, con
 	date := bytesToDateTime(response[0:6])
 	if !checkDate(date) {
 		l.Error("Date is wrong! Trying to get the right date...")
+		l.Info("Response: ", response)
 		getData(energometer, retriesLeft-1)
 		if !isConnectionClosed(conn) {
 			conn.Close()
@@ -207,8 +208,8 @@ func checkDate(date string) bool {
 	dateTime = dateTime.UTC()
 
 	currentDate := time.Now().UTC().Truncate(24 * time.Hour)
-	yesterdayDate := currentDate.Add(-24 * time.Hour)
-	tomorrowDate := currentDate.Add(24 * time.Hour)
+	yesterdayDate := currentDate.Add(-48 * time.Hour)
+	tomorrowDate := currentDate.Add(48 * time.Hour)
 
 	if dateTime.After(yesterdayDate) && dateTime.Before(tomorrowDate) {
 		return true
