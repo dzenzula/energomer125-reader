@@ -119,6 +119,10 @@ func processEnergometerResponse(response []byte, energometer models.Command, con
 
 	q1 := bytesToFloat32(response[24:28])
 
+	if q1 < 0 {
+		q1 = 0
+	}
+
 	insertData(q1, energometer, date)
 
 	//l.Info("Response:")
