@@ -5,7 +5,7 @@ mssql:
   database: KRR-PA-RAW-Energy
 
 connection:
-  host: 10.11.192.242
+  host: 10.21.2.139
   type: tcp
 
 commands:
