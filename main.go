@@ -21,7 +21,7 @@ func main() {
 	fmt.Println("Service started!")
 
 	for {
-		//wait()
+		wait()
 
 		for _, i := range c.GlobalConfig.Commands {
 			//l.Info("Command:", i.Command)
