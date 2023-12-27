@@ -21,7 +21,7 @@ func main() {
 	fmt.Println("Service started!")
 
 	for {
-		wait()
+		//wait()
 
 		for _, i := range c.GlobalConfig.Commands {
 			//l.Info("Command:", i.Command)
@@ -65,16 +65,14 @@ func getData(energometer models.Command, retriesLeft int) {
 	}
 
 	response := make([]byte, 0)
-	buffer := make([]byte, 1024)
+	buffer := make([]byte, 512)
 
 	timeout := time.AfterFunc(c.GlobalConfig.Timeout, func() {
-		l.Error("Timeout on data reading...\n Trying ")
+		l.Error("Timeout on data reading...")
 		conn.Close()
-		getData(energometer, retriesLeft-1)
-		return
 	})
 
-	for {
+	for i := 0; i < 2; i++ {
 		n, err := conn.Read(buffer)
 		if err != nil {
 			fmt.Println("Read failed:", err)
@@ -83,15 +81,18 @@ func getData(energometer models.Command, retriesLeft int) {
 		}
 
 		response = append(response, buffer[:n]...)
-		l.Info("Bytes of information recieved:", n)
 
-		if n < len(buffer) {
+		if i == 0 && n == 261 {
 			break
 		}
 	}
+	l.Info("Bytes of information recieved:", len(response))
+	fmt.Println("Bytes of information recieved:", len(response))
+	l.Info("Received data from the energometer:", response)
+	fmt.Println("Received data from the energometer:", response)
 	timeout.Stop()
 
-	if len(response) == 261 {
+	if len(response) >= 261 {
 		processEnergometerResponse(response, energometer, conn, retriesLeft)
 	} else {
 		l.Error("Received wrong data from the energometer:", response)
@@ -121,6 +122,12 @@ func processEnergometerResponse(response []byte, energometer models.Command, con
 
 	if q1 < 0 {
 		q1 = 0
+	} else if q1 > 10000 {
+		getData(energometer, retriesLeft-1)
+		if !isConnectionClosed(conn) {
+			conn.Close()
+		}
+		return
 	}
 
 	insertData(q1, energometer, date)
