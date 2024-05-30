@@ -29,4 +29,5 @@ type Configuration struct {
 	Timer            time.Duration `yaml:"timer"`
 	Timeout          time.Duration `yaml:"timeout"`
 	Max_Read_Retries int           `yaml:"max_read_retries"`
+	LogLevel         string        `yaml:"log_level"`
 }
