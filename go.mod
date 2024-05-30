@@ -1,8 +1,11 @@
 module main
 
-go 1.20
+go 1.22.2
 
-require github.com/denisenkom/go-mssqldb v0.12.3
+require (
+	github.com/denisenkom/go-mssqldb v0.12.3
+	krr-app-gitlab01.europe.mittalco.com/pait/modules/go/logging v0.0.0
+)
 
 require (
 	github.com/hashicorp/hcl v1.0.0 // indirect
@@ -28,3 +31,5 @@ require (
 	github.com/spf13/viper v1.16.0
 	golang.org/x/crypto v0.9.0 // indirect
 )
+
+replace krr-app-gitlab01.europe.mittalco.com/pait/modules/go/logging => ./src/logging

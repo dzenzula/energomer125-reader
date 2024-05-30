@@ -6,3 +6,4 @@ energomer125-reader
 deploy/*
 /*.yml
 *.sdb*
+logs

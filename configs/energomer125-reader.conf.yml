@@ -24,3 +24,4 @@ query_insert: INSERT INTO [dbo].[raw_source_132_analog] ([NAME], [id_measuring],
 timer: 5m
 timeout: 2m
 max_read_retries: 3
+log_level: release

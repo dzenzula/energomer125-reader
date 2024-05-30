@@ -5,20 +5,19 @@ import (
 	"encoding/binary"
 	"fmt"
 	c "main/configurations"
-	l "main/logger"
 	"main/models"
 	"math"
 	"net"
 	"time"
 
 	_ "github.com/denisenkom/go-mssqldb"
+	log "krr-app-gitlab01.europe.mittalco.com/pait/modules/go/logging"
 )
 
 func main() {
-	l.InitLogger()
+	log.LogInit(c.GlobalConfig.LogLevel)
 	c.InitConfig()
-	l.Info("Service started!")
-	fmt.Println("Service started!")
+	log.Info("Service started!")
 
 	for {
 		wait()
@@ -32,20 +31,20 @@ func main() {
 
 func getData(energometer models.Command, retriesLeft int) {
 	if retriesLeft <= 0 {
-		l.Error("Reached maximum retries, unable to retrieve valid data.")
+		log.Error("Reached maximum retries, unable to retrieve valid data.")
 		return
 	}
 
 	tcpServer, err := net.ResolveTCPAddr(c.GlobalConfig.Connection.Type, c.GlobalConfig.Connection.Host+":"+energometer.Port)
 	if err != nil {
-		l.Error("ResolveTCPAddr failed:", err.Error())
+		log.Error(fmt.Sprintf("ResolveTCPAddr failed: %s", err.Error()))
 		getData(energometer, retriesLeft-1)
 		return
 	}
 
 	conn, err := net.DialTCP(c.GlobalConfig.Connection.Type, nil, tcpServer)
 	if err != nil {
-		l.Error("Dial failed:", err.Error())
+		log.Error(fmt.Sprintf("Dial failed: %s", err.Error()))
 		getData(energometer, retriesLeft-1)
 		return
 	}
@@ -54,21 +53,21 @@ func getData(energometer models.Command, retriesLeft int) {
 
 	_, err = conn.Write(bytecommand)
 	if err != nil {
-		l.Error("Write failed:", err.Error())
+		log.Error(fmt.Sprintf("Write failed: %s", err.Error()))
 		conn.Close()
-		l.Info("Retrying to send the command...")
+		log.Info("Retrying to send the command...")
 		getData(energometer, retriesLeft-1)
 		return
 	} else {
 		t := fmt.Sprintf("Command: %s sent successfully!", energometer.Command)
-		l.Info(t)
+		log.Info(t)
 	}
 
 	response := make([]byte, 0)
 	buffer := make([]byte, 1024)
 
 	timeout := time.AfterFunc(c.GlobalConfig.Timeout, func() {
-		l.Error("Timeout on data reading...\n Trying ")
+		log.Error("Timeout on data reading...\n Trying ")
 		conn.Close()
 		getData(energometer, retriesLeft-1)
 		return
@@ -78,12 +77,12 @@ func getData(energometer models.Command, retriesLeft int) {
 		n, err := conn.Read(buffer)
 		if err != nil {
 			fmt.Println("Read failed:", err)
-			l.Error("Read failed:", err)
+			log.Error(fmt.Sprintf("Read failed: %s", err))
 			break
 		}
 
 		response = append(response, buffer[:n]...)
-		l.Info("Bytes of information recieved:", n)
+		log.Info(fmt.Sprintf("Bytes of information recieved: %d", n))
 
 		if n < len(buffer) {
 			break
@@ -94,8 +93,13 @@ func getData(energometer models.Command, retriesLeft int) {
 	if len(response) == 261 {
 		processEnergometerResponse(response, energometer, conn, retriesLeft)
 	} else {
-		l.Error("Received wrong data from the energometer:", response)
-		l.Info("Trying again to retrieve valid data...")
+		intSlice := make([]int, len(response))
+		for i, b := range response {
+			intSlice[i] = int(b)
+		}
+
+		log.Error(fmt.Sprintf("Received wrong data from the energometer: %d", intSlice))
+		log.Info("Trying again to retrieve valid data...")
 		conn.Close()
 		getData(energometer, retriesLeft-1)
 	}
@@ -108,8 +112,8 @@ func getData(energometer models.Command, retriesLeft int) {
 func processEnergometerResponse(response []byte, energometer models.Command, conn *net.TCPConn, retriesLeft int) {
 	date := bytesToDateTime(response[0:6])
 	if !checkDate(date) {
-		l.Error("Date is wrong! Trying to get the right date...")
-		l.Info("Response: ", response)
+		log.Error("Date is wrong! Trying to get the right date...")
+		//log.Info("Response: ", response)
 		getData(energometer, retriesLeft-1)
 		if !isConnectionClosed(conn) {
 			conn.Close()
@@ -126,7 +130,7 @@ func processEnergometerResponse(response []byte, energometer models.Command, con
 	insertData(q1, energometer, date)
 
 	//l.Info("Response:")
-	l.Info("Q1:", q1)
+	log.Info(fmt.Sprintf("Q1: %f", q1))
 }
 
 func insertData(v1 float32, energometr models.Command, date string) {
@@ -135,7 +139,7 @@ func insertData(v1 float32, energometr models.Command, date string) {
 
 	_, err := db.Exec(q, energometr.Name, energometr.Id_Measuring, v1, date, 192, nil)
 	if err != nil {
-		l.Error("Error during SQL query execution:", err.Error())
+		log.Error(fmt.Sprintf("Error during SQL query execution: %s", err.Error()))
 	}
 
 	defer db.Close()
@@ -145,14 +149,14 @@ func ConnectMs() *sql.DB {
 	connString := fmt.Sprintf("server=%s;user id=%s;password=%s;database=%s", c.GlobalConfig.MSSQL.Server, c.GlobalConfig.MSSQL.User_Id, c.GlobalConfig.MSSQL.Password, c.GlobalConfig.MSSQL.Database)
 	conn, conErr := sql.Open("mssql", connString)
 	if conErr != nil {
-		l.Error("Error opening database connection:", conErr.Error())
+		log.Error(fmt.Sprintf("Error opening database connection: %s", conErr.Error()))
 	}
 
 	pingErr := conn.Ping()
 	if pingErr != nil {
-		l.Error(pingErr.Error())
+		log.Error(pingErr.Error())
 		time.Sleep(10 * time.Second)
-		l.Info("Trying to reconnect to the database...")
+		log.Info("Trying to reconnect to the database...")
 		ConnectMs()
 	}
 
@@ -183,7 +187,7 @@ func wait() {
 	duration := time.Until(time.Now().Truncate(c.GlobalConfig.Timer).Add(c.GlobalConfig.Timer))
 	t := time.Now().Add(duration).Format("2006-01-02 15:04:05")
 
-	l.Info("Time until the next iteration:", t)
+	log.Info(fmt.Sprintf("Time until the next iteration: %s", t))
 	fmt.Println("Time until the next iteration:", t)
 
 	time.Sleep(duration)
@@ -205,7 +209,7 @@ func checkDate(date string) bool {
 	layout := "2006-01-02"
 	dateTime, err := time.Parse(layout, date[:10])
 	if err != nil {
-		l.Error("Error when converting a string to a date:", err)
+		log.Error(fmt.Sprintf("Error when converting a string to a date: %s", err))
 		return false
 	}
 
