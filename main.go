@@ -134,6 +134,12 @@ func processEnergometerResponse(response []byte, energometer models.Command, con
 
 	if q1 < 0 {
 		q1 = 0
+	} else if q1 > 10000 {
+		getData(energometer)
+		if !isConnectionClosed(conn) {
+			conn.Close()
+		}
+		return
 	}
 
 	insertData(q1, energometer, date)
