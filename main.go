@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"fmt"
+	"io"
 	c "main/configurations"
 	"main/models"
 	"math"
@@ -21,114 +22,120 @@ func main() {
 
 	for {
 		wait()
+		//time.Sleep(1 * time.Minute)
 
 		for _, i := range c.GlobalConfig.Commands {
 			//l.Info("Command:", i.Command)
-			getData(i, c.GlobalConfig.Max_Read_Retries)
+			getData(i)
 		}
 	}
 }
 
-func getData(energometer models.Command, retriesLeft int) {
-	if retriesLeft <= 0 {
-		log.Error("Reached maximum retries, unable to retrieve valid data.")
-		return
-	}
-
-	tcpServer, err := net.ResolveTCPAddr(c.GlobalConfig.Connection.Type, c.GlobalConfig.Connection.Host+":"+energometer.Port)
-	if err != nil {
-		log.Error(fmt.Sprintf("ResolveTCPAddr failed: %s", err.Error()))
-		getData(energometer, retriesLeft-1)
-		return
-	}
-
-	conn, err := net.DialTCP(c.GlobalConfig.Connection.Type, nil, tcpServer)
-	if err != nil {
-		log.Error(fmt.Sprintf("Dial failed: %s", err.Error()))
-		getData(energometer, retriesLeft-1)
-		return
-	}
-
-	bytecommand := []byte(energometer.Command)
-
-	_, err = conn.Write(bytecommand)
-	if err != nil {
-		log.Error(fmt.Sprintf("Write failed: %s", err.Error()))
-		conn.Close()
-		log.Info("Retrying to send the command...")
-		getData(energometer, retriesLeft-1)
-		return
-	} else {
-		t := fmt.Sprintf("Command: %s sent successfully!", energometer.Command)
-		log.Info(t)
-	}
-
-	response := make([]byte, 0)
-	buffer := make([]byte, 512)
-
-	timeout := time.AfterFunc(c.GlobalConfig.Timeout, func() {
-		l.Error("Timeout on data reading...")
-		conn.Close()
-	})
-
-	for i := 0; i < 2; i++ {
-		n, err := conn.Read(buffer)
+func getData(energometer models.Command) {
+	for i := 0; i < c.GlobalConfig.Max_Read_Retries; i++ {
+		tcpServer, err := net.ResolveTCPAddr(c.GlobalConfig.Connection.Type, c.GlobalConfig.Connection.Host+":"+energometer.Port)
 		if err != nil {
-			fmt.Println("Read failed:", err)
-			log.Error(fmt.Sprintf("Read failed: %s", err))
-			break
+			log.Error(fmt.Sprintf("ResolveTCPAddr failed: %s", err.Error()))
+			continue
 		}
 
-		response = append(response, buffer[:n]...)
-		log.Info(fmt.Sprintf("Bytes of information recieved: %d", n))
-
-		if i == 0 && n == 261 {
-			break
-		}
-	}
-	l.Info("Bytes of information recieved:", len(response))
-	fmt.Println("Bytes of information recieved:", len(response))
-	l.Info("Received data from the energometer:", response)
-	fmt.Println("Received data from the energometer:", response)
-	timeout.Stop()
-
-	if len(response) >= 261 {
-		processEnergometerResponse(response, energometer, conn, retriesLeft)
-	} else {
-		intSlice := make([]int, len(response))
-		for i, b := range response {
-			intSlice[i] = int(b)
+		conn, err := net.DialTCP(c.GlobalConfig.Connection.Type, nil, tcpServer)
+		if err != nil {
+			log.Error(fmt.Sprintf("Dial failed: %s", err.Error()))
+			continue
 		}
 
-		log.Error(fmt.Sprintf("Received wrong data from the energometer: %d", intSlice))
-		log.Info("Trying again to retrieve valid data...")
+		bytecommand := []byte(energometer.Command)
+
+		_, err = conn.Write(bytecommand)
+		if err != nil {
+			log.Error(fmt.Sprintf("Write failed: %s", err.Error()))
+			conn.Close()
+			log.Info("Retrying to send the command...")
+			continue
+		} else {
+			t := fmt.Sprintf("Command: %s sent successfully!", energometer.Command)
+			log.Info(t)
+		}
+
+		response := make([]byte, 0)
+		buffer := make([]byte, 1024)
+
+		/*timeout := time.AfterFunc(c.GlobalConfig.Timeout, func() {
+			log.Error("Timeout on data reading...\n Trying ")
+			conn.Close()
+		})*/
+
+		for {
+			n, err := conn.Read(buffer)
+			if err != nil {
+				if err == io.EOF {
+					log.Info("Connection closed by the server.")
+					break
+				}
+				log.Error(fmt.Sprintf("Read failed: %s", err))
+				conn.Close()
+				log.Info("Retrying to retrieve valid data...")
+				continue
+			}
+
+			response = append(response, buffer[:n]...)
+			log.Info(fmt.Sprintf("Bytes of information recieved: %d", n))
+
+			if len(response) >= 130 {
+				break
+			}
+		}
+		//timeout.Stop()
+
+		if len(response) >= 130 {
+			processEnergometerResponse(response, energometer, conn)
+		} else {
+			intSlice := make([]int, len(response))
+			for i, b := range response {
+				intSlice[i] = int(b)
+			}
+
+			log.Error(fmt.Sprintf("Received wrong data from the energometer: %d", intSlice))
+			log.Info("Trying again to retrieve valid data...")
+			conn.Close()
+			continue
+		}
+
+		if i == 2 {
+			log.Error("Reached maximum retries, unable to retrieve valid data.")
+			conn.Close()
+			return
+		}
+
 		conn.Close()
-		getData(energometer, retriesLeft-1)
-	}
-
-	if !isConnectionClosed(conn) {
-		conn.Close()
+		break
 	}
 }
 
-func processEnergometerResponse(response []byte, energometer models.Command, conn *net.TCPConn, retriesLeft int) {
+func processEnergometerResponse(response []byte, energometer models.Command, conn *net.TCPConn) {
 	date := bytesToDateTime(response[0:6])
 	if !checkDate(date) {
 		log.Error("Date is wrong! Trying to get the right date...")
-		//log.Info("Response: ", response)
-		getData(energometer, retriesLeft-1)
 		if !isConnectionClosed(conn) {
 			conn.Close()
 		}
 		return
 	}
 
+	intSlice := make([]int, len(response))
+	for i, b := range response {
+		intSlice[i] = int(b)
+	}
+
+	log.Error(fmt.Sprintf("Received data from the energometer: %d", intSlice))
+
 	q1 := bytesToFloat32(response[24:28])
 
 	if q1 < 0 {
 		q1 = 0
 	} else if q1 > 10000 {
-		getData(energometer, retriesLeft-1)
+		getData(energometer)
 		if !isConnectionClosed(conn) {
 			conn.Close()
 		}
