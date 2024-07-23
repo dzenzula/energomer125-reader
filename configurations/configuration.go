@@ -2,7 +2,6 @@ package configurations
 
 import (
 	"fmt"
-	l "main/logger"
 	"main/models"
 	"os"
 
@@ -27,22 +26,21 @@ func InitConfig() {
 	viper.SetConfigFile(configName)
 	err := viper.ReadInConfig()
 	if err != nil {
-		l.Fatal(err)
+		fmt.Println(err.Error())
 	}
 
 	err = viper.Unmarshal(&GlobalConfig)
 	if err != nil {
-		l.Fatal(err)
+		fmt.Println(err.Error())
 	}
 
 	// Настраиваем отслеживание изменений в конфигурационном файле
 	viper.WatchConfig()
 	viper.OnConfigChange(func(e fsnotify.Event) {
 		fmt.Println("Config file changed", e.Name)
-		l.Info("Config file changed", e.Name)
 		err := viper.Unmarshal(&GlobalConfig)
 		if err != nil {
-			l.Fatal(err)
+			fmt.Println(err.Error())
 		}
 	})
 }
