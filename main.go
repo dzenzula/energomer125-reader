@@ -149,6 +149,13 @@ func processEnergometerResponse(response []byte, energometer models.Command, con
 		return
 	}
 
+	layout := "2006-01-02 15:04:05"
+	dateTime, _ := time.Parse(layout, date)
+	if dateTime.Second() == 0 && dateTime.Minute() == 0 {
+		dateTime = dateTime.Add(-1 * time.Hour)
+		date = dateTime.Format("2006-01-02 15:04:05")
+	}
+
 	intSlice := make([]int, len(response))
 	for i, b := range response {
 		intSlice[i] = int(b)
@@ -167,7 +174,6 @@ func processEnergometerResponse(response []byte, energometer models.Command, con
 	if q1 < 0 {
 		q1 = 0
 	} else if q1 > 10000 {
-		getData(energometer)
 		if !isConnectionClosed(conn) {
 			conn.Close()
 		}
@@ -292,8 +298,10 @@ func retrieveMissingData(energometer models.Command) {
 	currentRetrieval = currentRetrieval.Truncate(time.Hour)
 
 	diff := int(lastRetrieval.Sub(currentRetrieval).Hours())
-	if diff == 0 {
+	if diff == 0 || diff == 1 {
 		return
+	} else if diff > 12 {
+		diff = 12
 	}
 
 	conn, err := createConnection(energometer)
