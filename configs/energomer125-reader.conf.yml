@@ -9,12 +9,19 @@ connection:
   type: tcp
 
 commands:
-  - command: EMC !125m7827
+  - current_data: EMC !125m7827
+    last_hour_archive: EMA !125m7827 %0
+    forward_archive: EMF !125m7827
+    backwards_archive: EMB !125m7827 
     port: 52321
     id_measuring: 1688129916
     name: ASUWATER_WaterPipe_IngulSouth_Pipe1Pump_Fwater
+    
 
-  - command: EMC !125m7825
+  - current_data: EMC !125m7825
+    last_hour_archive: EMA !125m7825 %0
+    forward_archive: EMF !125m7825
+    backwards_archive: EMB !125m7825 
     port: 52325
     id_measuring: 1688129915
     name: ASUWATER_WaterPipe_IngulSouth_Pipe3Pump_Fwater
