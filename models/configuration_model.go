@@ -10,10 +10,13 @@ type MSSQLConfig struct {
 }
 
 type Command struct {
-	Command      string `yaml:"command"`
-	Port         string `yaml:"port"`
-	Id_Measuring int    `yaml:"id_measuring"`
-	Name         string `yaml:"name"`
+	Current_Data      string `yaml:"current_data"`
+	Last_Hour_Archive string `yaml:"last_hour_archive"`
+	Forward_Archive   string `yaml:"forward_archive"`
+	Bacwards_Archive  string `yaml:"backwards_archive"`
+	Port              string `yaml:"port"`
+	Id_Measuring      int    `yaml:"id_measuring"`
+	Name              string `yaml:"name"`
 }
 
 type Connection struct {
@@ -29,5 +32,5 @@ type Configuration struct {
 	Timer            time.Duration `yaml:"timer"`
 	Timeout          time.Duration `yaml:"timeout"`
 	Max_Read_Retries int           `yaml:"max_read_retries"`
-	Log_Level         string        `yaml:"log_level"`
+	Log_Level        string        `yaml:"log_level"`
 }
