@@ -3,12 +3,14 @@ package main
 import (
 	"database/sql"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	c "main/configurations"
 	"main/models"
 	"math"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -16,11 +18,17 @@ import (
 	log "krr-app-gitlab01.europe.mittalco.com/pait/modules/go/logging"
 )
 
+type TimeStorage struct {
+	LastSuccessfulRetrieval map[string]time.Time `json:"lastSuccessfulRetrieval"`
+}
+
 var (
 	lastSuccessfulRetrieval    map[string]time.Time
 	currentSuccessfulRetrieval map[string]time.Time
 	retrievalMutex             sync.Mutex
 )
+
+const timeStorageFile = "time_storage.json"
 
 func main() {
 	c.InitConfig()
@@ -30,15 +38,15 @@ func main() {
 	lastSuccessfulRetrieval = make(map[string]time.Time)
 	currentSuccessfulRetrieval = make(map[string]time.Time)
 
+	loadTimeFromFile()
+
 	archiveChan := make(chan models.Command, 10)
 	go processArchives(archiveChan)
 
 	for {
 		wait()
-		//time.Sleep(1 * time.Minute)
 
 		for _, i := range c.GlobalConfig.Commands {
-			//l.Info("Command:", i.Command)
 			getData(i)
 			archiveChan <- i
 		}
@@ -75,7 +83,7 @@ func getData(energometer models.Command) {
 		}
 
 	}
-	currentSuccessfulRetrieval[energometer.Current_Data] = time.Date(0, 0, 0, 0, 0, 0, 0, time.Local)
+	currentSuccessfulRetrieval[energometer.Current_Data] = time.Date(1, 0, 0, 0, 0, 0, 0, time.Local)
 	log.Error("Reached maximum retries, unable to retrieve valid data.")
 }
 
@@ -116,7 +124,6 @@ func readResponse(conn *net.TCPConn) ([]byte, error) {
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				break
-				//return nil, fmt.Errorf("read timeout: %w", err)
 			}
 			if err == io.EOF {
 				log.Error("Connection closed by the server.")
@@ -151,7 +158,9 @@ func processEnergometerResponse(response []byte, energometer models.Command, con
 
 	layout := "2006-01-02 15:04:05"
 	dateTime, _ := time.Parse(layout, date)
-	if dateTime.Second() == 0 && dateTime.Minute() == 0 {
+	sec := dateTime.Second()
+	min := dateTime.Minute()
+	if sec == 0 && min == 0 {
 		dateTime = dateTime.Add(-1 * time.Hour)
 		date = dateTime.Format("2006-01-02 15:04:05")
 	}
@@ -182,7 +191,7 @@ func processEnergometerResponse(response []byte, energometer models.Command, con
 
 	insertData(q1, energometer, date)
 
-	log.Info(fmt.Sprintf("Q1: %f", q1))
+	log.Info(fmt.Sprintf("%s Q1: %f", energometer.Current_Data, q1))
 }
 
 func insertData(v1 float32, energometr models.Command, date string) {
@@ -297,7 +306,10 @@ func retrieveMissingData(energometer models.Command) {
 	lastRetrieval = lastRetrieval.Truncate(time.Hour)
 	currentRetrieval = currentRetrieval.Truncate(time.Hour)
 
-	diff := int(lastRetrieval.Sub(currentRetrieval).Hours())
+	diff := int(currentRetrieval.Sub(lastRetrieval).Hours())
+
+	//fmt.Println("Differance: ", diff)
+
 	if diff == 0 || diff == 1 {
 		return
 	} else if diff > 12 {
@@ -333,11 +345,14 @@ func retrieveMissingData(energometer models.Command) {
 			return
 		}
 
-		if dateTime.Second() != 0 && dateTime.Minute() != 0 {
+		sec := dateTime.Second()
+		minute := dateTime.Minute()
+
+		if minute != 0 && sec != 0 {
 			continue
 		}
 
-		if err := sendCommand(conn, energometer.Bacwards_Archive); err != nil {
+		if err := sendCommand(conn, energometer.Backwards_Archive); err != nil {
 			log.Error(fmt.Sprintf("Send command failed: %s", err.Error()))
 			return
 		}
@@ -350,7 +365,7 @@ func retrieveMissingData(energometer models.Command) {
 
 		processEnergometerResponse(response, energometer, conn)
 
-		diff++
+		i++
 	}
 }
 
@@ -358,11 +373,64 @@ func updateSuccessfulRetrieval(command string) {
 	retrievalMutex.Lock()
 	defer retrievalMutex.Unlock()
 
-	if currentSuccessfulRetrieval[command].Year() != -1 {
+	y := currentSuccessfulRetrieval[command].Year()
+	//fmt.Println(y)
+
+	if y != 1 {
 		lastSuccessfulRetrieval[command] = currentSuccessfulRetrieval[command]
 	}
 	currentSuccessfulRetrieval[command] = time.Now()
 
 	log.Debug(fmt.Sprintf("Last successful retrieval: %s", lastSuccessfulRetrieval[command].String()))
 	log.Debug(fmt.Sprintf("Current successful retrieval: %s", currentSuccessfulRetrieval[command].String()))
+
+	go saveTimeToFile()
+}
+
+func saveTimeToFile() {
+	retrievalMutex.Lock()
+	defer retrievalMutex.Unlock()
+
+	storage := TimeStorage{
+		LastSuccessfulRetrieval: lastSuccessfulRetrieval,
+	}
+
+	data, err := json.MarshalIndent(storage, "", "  ")
+	if err != nil {
+		log.Error(fmt.Sprintf("Error marshalling time data: %s", err))
+		return
+	}
+
+	err = os.WriteFile(timeStorageFile, data, 0644)
+	if err != nil {
+		log.Error(fmt.Sprintf("Error writing time data to file: %s", err))
+		return
+	}
+
+	log.Debug("Time data successfully saved to file.")
+}
+
+func loadTimeFromFile() {
+	data, err := os.ReadFile(timeStorageFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Info("Time storage file not found. Creating a new one.")
+			saveTimeToFile() // Создаем новый файл
+			return
+		}
+		log.Error(fmt.Sprintf("Error reading time data from file: %s", err))
+		return
+	}
+
+	var storage TimeStorage
+	err = json.Unmarshal(data, &storage)
+	if err != nil {
+		log.Error(fmt.Sprintf("Error unmarshalling time data: %s", err))
+		return
+	}
+
+	retrievalMutex.Lock()
+	defer retrievalMutex.Unlock()
+
+	lastSuccessfulRetrieval = storage.LastSuccessfulRetrieval
 }
