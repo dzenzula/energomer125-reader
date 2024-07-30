@@ -13,7 +13,7 @@ type Command struct {
 	Current_Data      string `yaml:"current_data"`
 	Last_Hour_Archive string `yaml:"last_hour_archive"`
 	Forward_Archive   string `yaml:"forward_archive"`
-	Bacwards_Archive  string `yaml:"backwards_archive"`
+	Backwards_Archive string `yaml:"backwards_archive"`
 	Port              string `yaml:"port"`
 	Id_Measuring      int    `yaml:"id_measuring"`
 	Name              string `yaml:"name"`
