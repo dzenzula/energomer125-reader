@@ -6,18 +6,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	c "main/configurations"
-	"main/models"
 	"math"
 	"net"
 	"os"
 	"sync"
 	"time"
 
+	c "main/configurations"
+	"main/models"
+
 	_ "github.com/denisenkom/go-mssqldb"
 	log "krr-app-gitlab01.europe.mittalco.com/pait/modules/go/logging"
 )
 
+// TimeStorage represents the structure for storing last successful retrieval times
 type TimeStorage struct {
 	LastSuccessfulRetrieval map[string]time.Time `json:"lastSuccessfulRetrieval"`
 }
@@ -28,9 +30,24 @@ var (
 	retrievalMutex             sync.Mutex
 )
 
-const timeStorageFile = "time_storage.json"
+const (
+	timeStorageFile = "time_storage.json"
+	responseLength  = 132
+)
 
 func main() {
+	initializeApplication()
+	archiveChan := make(chan models.Command, 10)
+	go processArchives(archiveChan)
+
+	for {
+		wait()
+		processCommands(archiveChan)
+		log.Info("Ended transfer data")
+	}
+}
+
+func initializeApplication() {
 	c.InitConfig()
 	log.LogInit(c.GlobalConfig.Log_Level)
 	log.Info("Service started!")
@@ -39,56 +56,60 @@ func main() {
 	currentSuccessfulRetrieval = make(map[string]time.Time)
 
 	loadTimeFromFile()
+}
 
-	archiveChan := make(chan models.Command, 10)
-	go processArchives(archiveChan)
-
-	for {
-		wait()
-
-		for _, i := range c.GlobalConfig.Commands {
-			getData(i)
-			archiveChan <- i
-		}
-		log.Info("Ended transfer data")
+func processCommands(archiveChan chan<- models.Command) {
+	for _, command := range c.GlobalConfig.Commands {
+		getData(command)
+		archiveChan <- command
 	}
 }
 
 func getData(energometer models.Command) {
 	for retriesLeft := c.GlobalConfig.Max_Read_Retries; retriesLeft > 0; retriesLeft-- {
-		conn, err := createConnection(energometer)
-		if err != nil {
-			log.Error(fmt.Sprintf("Connection setup failed: %s", err.Error()))
-			continue
-		}
-		defer conn.Close()
-
-		if err := sendCommand(conn, energometer.Current_Data); err != nil {
-			log.Error(fmt.Sprintf("Send command failed: %s", err.Error()))
-			continue
-		}
-
-		response, err := readResponse(conn)
-		if err != nil {
-			log.Error(fmt.Sprintf("Read response failed: %s", err.Error()))
-			continue
-		}
-
-		if validateResponse(response) {
-			processEnergometerResponse(response, energometer, conn)
-			updateSuccessfulRetrieval(energometer.Current_Data)
+		if processEnergometerData(energometer) {
 			return
-		} else {
-			log.Error(fmt.Sprintf("Received wrong data from the energometer: %v", response))
 		}
-
 	}
+	handleMaxRetriesReached(energometer)
+}
+
+func processEnergometerData(energometer models.Command) bool {
+	conn, err := createConnection(energometer)
+	if err != nil {
+		log.Error(fmt.Sprintf("Connection setup failed: %s", err.Error()))
+		return false
+	}
+	defer conn.Close()
+
+	if err := sendCommand(conn, energometer.Current_Data); err != nil {
+		log.Error(fmt.Sprintf("Send command failed: %s", err.Error()))
+		return false
+	}
+
+	response, err := readResponse(conn)
+	if err != nil {
+		log.Error(fmt.Sprintf("Read response failed: %s", err.Error()))
+		return false
+	}
+
+	if validateResponse(response) {
+		processEnergometerResponse(response, energometer, conn)
+		updateSuccessfulRetrieval(energometer.Current_Data)
+		return true
+	}
+
+	log.Error(fmt.Sprintf("Received wrong data from the energometer: %v", response))
+	return false
+}
+
+func handleMaxRetriesReached(energometer models.Command) {
 	currentSuccessfulRetrieval[energometer.Current_Data] = time.Date(1, 0, 0, 0, 0, 0, 0, time.Local)
 	log.Error("Reached maximum retries, unable to retrieve valid data.")
 }
 
 func createConnection(energometer models.Command) (*net.TCPConn, error) {
-	tcpServer, err := net.ResolveTCPAddr(c.GlobalConfig.Connection.Type, c.GlobalConfig.Connection.Host+":"+energometer.Port)
+	tcpServer, err := net.ResolveTCPAddr(c.GlobalConfig.Connection.Type, fmt.Sprintf("%s:%s", c.GlobalConfig.Connection.Host, energometer.Port))
 	if err != nil {
 		return nil, fmt.Errorf("resolveTCPAddr failed: %w", err)
 	}
@@ -101,9 +122,7 @@ func createConnection(energometer models.Command) (*net.TCPConn, error) {
 }
 
 func sendCommand(conn *net.TCPConn, command string) error {
-	bytecommand := []byte(command)
-
-	_, err := conn.Write(bytecommand)
+	_, err := conn.Write([]byte(command))
 	if err != nil {
 		conn.Close()
 		return fmt.Errorf("write failed: %w", err)
@@ -122,11 +141,7 @@ func readResponse(conn *net.TCPConn) ([]byte, error) {
 	for {
 		n, err := conn.Read(buffer)
 		if err != nil {
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				break
-			}
-			if err == io.EOF {
-				log.Error("Connection closed by the server.")
+			if handleConnectionError(err) {
 				break
 			}
 			return nil, fmt.Errorf("read failed: %w", err)
@@ -135,99 +150,146 @@ func readResponse(conn *net.TCPConn) ([]byte, error) {
 		response = append(response, buffer[:n]...)
 		log.Debug(fmt.Sprintf("Bytes of information received: %d", n))
 
-		if len(response) >= 132 {
+		if len(response) >= responseLength {
 			break
 		}
 	}
 	return response, nil
 }
 
+func handleConnectionError(err error) bool {
+	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+		log.Error("Connection closed because of timeout.")
+		return true
+	}
+	if err == io.EOF {
+		log.Error("Connection closed by the server.")
+		return true
+	}
+	return false
+}
+
 func validateResponse(response []byte) bool {
-	return len(response) >= 132
+	return len(response) >= responseLength
 }
 
 func processEnergometerResponse(response []byte, energometer models.Command, conn *net.TCPConn) {
-	date := bytesToDateTime(response[0:6])
-	if !checkDate(date) {
-		log.Error("Date is wrong! Trying to get the right date...")
-		if !isConnectionClosed(conn) {
-			conn.Close()
-		}
+	if !isValidResponse(response, conn) {
 		return
 	}
 
-	layout := "2006-01-02 15:04:05"
-	dateTime, _ := time.Parse(layout, date)
-	sec := dateTime.Second()
-	min := dateTime.Minute()
-	if sec == 0 && min == 0 {
-		dateTime = dateTime.Add(-1 * time.Hour)
-		date = dateTime.Format("2006-01-02 15:04:05")
+	date, dateTime := processDate(response, conn)
+	if date == "" {
+		return
 	}
 
-	intSlice := make([]int, len(response))
-	for i, b := range response {
-		intSlice[i] = int(b)
-	}
-
+	intSlice := convertResponseToIntSlice(response)
 	log.Debug(fmt.Sprintf("Received data from the energometer: %d", intSlice))
 
-	var q1 float32
-
-	if len(response) == 132 {
-		q1 = bytesToFloat32(response[14:18])
-	} else {
-		q1 = bytesToFloat32(response[24:28])
-	}
-
-	if q1 < 0 {
-		q1 = 0
-	} else if q1 > 10000 {
-		if !isConnectionClosed(conn) {
-			conn.Close()
-		}
+	q1 := calculateQ1(response, dateTime)
+	if !isValidQ1(q1, conn) {
 		return
 	}
 
 	insertData(q1, energometer, date)
 
-	log.Info(fmt.Sprintf("%s Q1: %f", energometer.Current_Data, q1))
+	log.Info(fmt.Sprintf("Date: %s, Command: %s Q1: %f", date, energometer.Current_Data, q1))
 }
 
-func insertData(v1 float32, energometr models.Command, date string) {
-	db := ConnectMs()
-	q := c.GlobalConfig.Query_Insert
+func isValidResponse(response []byte, conn *net.TCPConn) bool {
+	if len(response) < responseLength {
+		log.Error("Response is short")
+		closeConnectionIfOpen(conn)
+		return false
+	}
+	return true
+}
 
-	_, err := db.Exec(q, energometr.Name, energometr.Id_Measuring, v1, date, 192, nil)
+func processDate(response []byte, conn *net.TCPConn) (string, time.Time) {
+	date := bytesToDateTime(response[0:6])
+	if !checkDate(date) {
+		log.Error("Date is wrong! Trying to get the right date...")
+		closeConnectionIfOpen(conn)
+		return "", time.Time{}
+	}
+
+	layout := "2006-01-02 15:04:05"
+	dateTime, _ := time.Parse(layout, date)
+	if dateTime.Second() == 0 && dateTime.Minute() == 0 {
+		dateTime = dateTime.Add(-1 * time.Hour)
+		date = dateTime.Format(layout)
+	}
+
+	return date, dateTime
+}
+
+func convertResponseToIntSlice(response []byte) []int {
+	intSlice := make([]int, len(response))
+	for i, b := range response {
+		intSlice[i] = int(b)
+	}
+	return intSlice
+}
+
+func calculateQ1(response []byte, dateTime time.Time) float32 {
+	if len(response) == responseLength || (dateTime.Second() == 0 && dateTime.Minute() == 0) {
+		return bytesToFloat32(response[14:18])
+	}
+	return bytesToFloat32(response[24:28])
+}
+
+func isValidQ1(q1 float32, conn *net.TCPConn) bool {
+	if q1 < 0 {
+		return true
+	}
+	if q1 > 10000 {
+		closeConnectionIfOpen(conn)
+		return false
+	}
+	return true
+}
+
+func closeConnectionIfOpen(conn *net.TCPConn) {
+	if !isConnectionClosed(conn) {
+		conn.Close()
+	}
+}
+
+func insertData(v1 float32, energometer models.Command, date string) {
+	db := ConnectMs()
+	defer db.Close()
+
+	_, err := db.Exec(c.GlobalConfig.Query_Insert, energometer.Name, energometer.Id_Measuring, v1, date, 192, nil)
 	if err != nil {
 		log.Error(fmt.Sprintf("Error during SQL query execution: %s", err.Error()))
 	}
-
-	defer db.Close()
 }
 
 func ConnectMs() *sql.DB {
-	connString := fmt.Sprintf("server=%s;user id=%s;password=%s;database=%s", c.GlobalConfig.MSSQL.Server, c.GlobalConfig.MSSQL.User_Id, c.GlobalConfig.MSSQL.Password, c.GlobalConfig.MSSQL.Database)
-	conn, conErr := sql.Open("mssql", connString)
-	if conErr != nil {
-		log.Error(fmt.Sprintf("Error opening database connection: %s", conErr.Error()))
+	connString := fmt.Sprintf("server=%s;user id=%s;password=%s;database=%s",
+		c.GlobalConfig.MSSQL.Server,
+		c.GlobalConfig.MSSQL.User_Id,
+		c.GlobalConfig.MSSQL.Password,
+		c.GlobalConfig.MSSQL.Database)
+
+	conn, err := sql.Open("mssql", connString)
+	if err != nil {
+		log.Error(fmt.Sprintf("Error opening database connection: %s", err.Error()))
+		return nil
 	}
 
-	pingErr := conn.Ping()
-	if pingErr != nil {
-		log.Error(pingErr.Error())
+	if err := conn.Ping(); err != nil {
+		log.Error(err.Error())
 		time.Sleep(10 * time.Second)
 		log.Error("Trying to reconnect to the database...")
-		ConnectMs()
+		return ConnectMs()
 	}
 
 	return conn
 }
 
 func bytesToFloat32(data []byte) float32 {
-	bin := binary.LittleEndian.Uint32(data)
-	res := math.Float32frombits(bin)
-	return res
+	return math.Float32frombits(binary.LittleEndian.Uint32(data))
 }
 
 func bytesToDateTime(bytes []byte) string {
@@ -239,9 +301,7 @@ func bytesToDateTime(bytes []byte) string {
 	second := int(bytes[0])
 
 	dateTime := time.Date(year, time.Month(month), day, hour, minute, second, 0, time.UTC)
-	formattedDateTime := dateTime.Format("2006-01-02 15:04:05")
-
-	return formattedDateTime
+	return dateTime.Format("2006-01-02 15:04:05")
 }
 
 func wait() {
@@ -263,24 +323,23 @@ func isConnectionClosed(conn net.Conn) bool {
 }
 
 func checkDate(date string) bool {
-	layout := "2006-01-02"
-	dateTime, err := time.Parse(layout, date[:10])
+	if date == "" {
+		log.Error("Date is empty")
+		return false
+	}
+
+	dateTime, err := time.Parse("2006-01-02", date[:10])
 	if err != nil {
 		log.Error(fmt.Sprintf("Error when converting a string to a date: %s", err))
 		return false
 	}
 
 	dateTime = dateTime.UTC()
-
 	currentDate := time.Now().UTC().Truncate(24 * time.Hour)
 	yesterdayDate := currentDate.Add(-48 * time.Hour)
 	tomorrowDate := currentDate.Add(48 * time.Hour)
 
-	if dateTime.After(yesterdayDate) && dateTime.Before(tomorrowDate) {
-		return true
-	}
-
-	return false
+	return dateTime.After(yesterdayDate) && dateTime.Before(tomorrowDate)
 }
 
 func processArchives(archiveChan <-chan models.Command) {
@@ -290,83 +349,114 @@ func processArchives(archiveChan <-chan models.Command) {
 }
 
 func retrieveMissingData(energometer models.Command) {
-	if currentSuccessfulRetrieval[energometer.Current_Data].Year() == -1 {
+	if !shouldRetrieveData(energometer) {
 		return
 	}
 
-	retrievalMutex.Lock()
-	lastRetrieval, exists := lastSuccessfulRetrieval[energometer.Current_Data]
-	currentRetrieval := currentSuccessfulRetrieval[energometer.Current_Data]
-	retrievalMutex.Unlock()
-
-	if !exists {
-		lastRetrieval = time.Now().Add(-1 * time.Hour) // Default to 1 hour ago if no record exists
-	}
-
-	lastRetrieval = lastRetrieval.Truncate(time.Hour)
-	currentRetrieval = currentRetrieval.Truncate(time.Hour)
-
-	diff := int(currentRetrieval.Sub(lastRetrieval).Hours())
-
-	//fmt.Println("Differance: ", diff)
-
-	if diff == 0 || diff == 1 {
+	diff := calculateTimeDifference(energometer)
+	if diff <= 1 {
 		return
-	} else if diff > 12 {
-		diff = 12
 	}
 
-	conn, err := createConnection(energometer)
+	conn, err := setupConnection(energometer)
 	if err != nil {
-		log.Error(fmt.Sprintf("Connection setup failed: %s", err.Error()))
 		return
 	}
 	defer conn.Close()
 
-	if err := sendCommand(conn, energometer.Last_Hour_Archive); err != nil {
-		log.Error(fmt.Sprintf("Send command failed: %s", err.Error()))
-		return
-	}
-
-	response, err := readResponse(conn)
+	response, err := getInitialResponse(conn, energometer)
 	if err != nil {
-		log.Error(fmt.Sprintf("Read response failed: %s", err.Error()))
 		return
 	}
 
 	processEnergometerResponse(response, energometer, conn)
 
-	for i := 0; i < diff; {
-		date := bytesToDateTime(response[0:6])
-		layout := "2006-01-02 15:04:05"
-		dateTime, err := time.Parse(layout, date)
-		if err != nil {
-			log.Error(fmt.Sprintf("Error when converting a string to a date: %s", err))
-			return
-		}
+	retrieveArchiveData(conn, energometer, diff, response)
+}
 
-		sec := dateTime.Second()
-		minute := dateTime.Minute()
+func shouldRetrieveData(energometer models.Command) bool {
+	return currentSuccessfulRetrieval[energometer.Current_Data].Year() != 1
+}
 
-		if minute != 0 && sec != 0 {
+func calculateTimeDifference(energometer models.Command) int {
+	retrievalMutex.Lock()
+	defer retrievalMutex.Unlock()
+
+	lastRetrieval, exists := lastSuccessfulRetrieval[energometer.Current_Data]
+	if !exists {
+		lastRetrieval = time.Now().Add(-1 * time.Hour)
+	}
+	currentRetrieval := currentSuccessfulRetrieval[energometer.Current_Data]
+
+	lastRetrieval = lastRetrieval.Truncate(time.Hour)
+	currentRetrieval = currentRetrieval.Truncate(time.Hour)
+
+	diff := int(currentRetrieval.Sub(lastRetrieval).Hours())
+	return min(diff, 12)
+}
+
+func setupConnection(energometer models.Command) (*net.TCPConn, error) {
+	conn, err := createConnection(energometer)
+	if err != nil {
+		log.Error(fmt.Sprintf("Connection setup failed: %s", err.Error()))
+		return nil, err
+	}
+	return conn, nil
+}
+
+func getInitialResponse(conn *net.TCPConn, energometer models.Command) ([]byte, error) {
+	if err := sendCommand(conn, energometer.Last_Hour_Archive); err != nil {
+		log.Error(fmt.Sprintf("Send command failed: %s", err.Error()))
+		return nil, err
+	}
+
+	response, err := readResponse(conn)
+	if err != nil {
+		log.Error(fmt.Sprintf("Read response failed: %s", err.Error()))
+		return nil, err
+	}
+	return response, nil
+}
+
+func retrieveArchiveData(conn *net.TCPConn, energometer models.Command, diff int, response []byte) {
+	for i := 0; i < diff; i++ {
+		if !isValidDateTime(response) {
 			continue
 		}
 
-		if err := sendCommand(conn, energometer.Backwards_Archive); err != nil {
-			log.Error(fmt.Sprintf("Send command failed: %s", err.Error()))
-			return
-		}
-
-		response, err := readResponse(conn)
+		response, err := getBackwardArchive(conn, energometer)
 		if err != nil {
-			log.Error(fmt.Sprintf("Read response failed: %s", err.Error()))
 			return
 		}
 
 		processEnergometerResponse(response, energometer, conn)
-
-		i++
 	}
+}
+
+func isValidDateTime(response []byte) bool {
+	date := bytesToDateTime(response[0:6])
+	layout := "2006-01-02 15:04:05"
+	dateTime, err := time.Parse(layout, date)
+	if err != nil {
+		log.Error(fmt.Sprintf("Error when converting a string to a date: %s", err))
+		return false
+	}
+
+	return dateTime.Minute() == 0 && dateTime.Second() == 0
+}
+
+func getBackwardArchive(conn *net.TCPConn, energometer models.Command) ([]byte, error) {
+	if err := sendCommand(conn, energometer.Backwards_Archive); err != nil {
+		log.Error(fmt.Sprintf("Send command failed: %s", err.Error()))
+		return nil, err
+	}
+
+	response, err := readResponse(conn)
+	if err != nil {
+		log.Error(fmt.Sprintf("Read response failed: %s", err.Error()))
+		return nil, err
+	}
+	return response, nil
 }
 
 func updateSuccessfulRetrieval(command string) {
@@ -374,7 +464,6 @@ func updateSuccessfulRetrieval(command string) {
 	defer retrievalMutex.Unlock()
 
 	y := currentSuccessfulRetrieval[command].Year()
-	//fmt.Println(y)
 
 	if y != 1 {
 		lastSuccessfulRetrieval[command] = currentSuccessfulRetrieval[command]
@@ -415,7 +504,7 @@ func loadTimeFromFile() {
 	if err != nil {
 		if os.IsNotExist(err) {
 			log.Info("Time storage file not found. Creating a new one.")
-			saveTimeToFile() // Создаем новый файл
+			saveTimeToFile()
 			return
 		}
 		log.Error(fmt.Sprintf("Error reading time data from file: %s", err))
