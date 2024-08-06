@@ -178,6 +178,10 @@ func processEnergometerResponse(response []byte, energometer models.Command, con
 		return
 	}
 
+	if isErrorResponse(response, conn) {
+		return
+	}
+
 	date, dateTime := processDate(response, conn)
 	if date == "" {
 		return
@@ -187,8 +191,8 @@ func processEnergometerResponse(response []byte, energometer models.Command, con
 	log.Debug(fmt.Sprintf("Received data from the energometer: %d", intSlice))
 
 	q1 := calculateQ1(response, dateTime)
-	if !isValidQ1(q1, conn) {
-		return
+	if !isValidQ1(q1) {
+		q1 = 0
 	}
 
 	insertData(q1, energometer, date)
@@ -203,6 +207,16 @@ func isValidResponse(response []byte, conn *net.TCPConn) bool {
 		return false
 	}
 	return true
+}
+
+func isErrorResponse(response []byte, conn *net.TCPConn) bool {
+	if response[9] == 1 {
+		log.Error("This respond has error flag!")
+		closeConnectionIfOpen(conn)
+		return true
+	}
+
+	return false
 }
 
 func processDate(response []byte, conn *net.TCPConn) (string, time.Time) {
@@ -238,12 +252,8 @@ func calculateQ1(response []byte, dateTime time.Time) float32 {
 	return bytesToFloat32(response[24:28])
 }
 
-func isValidQ1(q1 float32, conn *net.TCPConn) bool {
-	if q1 < 0 {
-		return true
-	}
-	if q1 > 10000 {
-		closeConnectionIfOpen(conn)
+func isValidQ1(q1 float32) bool {
+	if q1 > 10000 || q1 < 0 {
 		return false
 	}
 	return true
@@ -349,6 +359,7 @@ func processArchives(archiveChan <-chan models.Command) {
 }
 
 func retrieveMissingData(energometer models.Command) {
+	loadTimeFromFile()
 	if !shouldRetrieveData(energometer) {
 		return
 	}
