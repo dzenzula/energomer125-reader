@@ -289,8 +289,7 @@ func insertData(v1 float32, energometer models.Command, date string) error {
 }
 
 func ConnectMs() (*sql.DB, error) {
-	var conn *sql.DB
-	retries := 3
+	retries := c.GlobalConfig.Max_Read_Retries
 	connString := fmt.Sprintf("server=%s;user id=%s;password=%s;database=%s",
 		c.GlobalConfig.MSSQL.Server,
 		c.GlobalConfig.MSSQL.User_Id,
@@ -303,22 +302,24 @@ func ConnectMs() (*sql.DB, error) {
 		return nil, err
 	}
 
-	for {
-		if err := conn.Ping(); err == nil {
-			break
+	for retries > 0 {
+		err = conn.Ping()
+		if err == nil {
+			log.Debug("Successfully connected to the database.")
+			return conn, nil
 		}
-		log.Error(err.Error())
 
+		log.Error(fmt.Sprintf("Database connection ping failed: %s", err.Error()))
 		retries--
-		if retries == 0 {
-			return conn, err
-		}
 
-		time.Sleep(10 * time.Second)
-		log.Error("Trying to reconnect to the database...")
+		if retries > 0 {
+			time.Sleep(10 * time.Second)
+			log.Info("Retrying database connection...")
+		}
 	}
 
-	return conn, nil
+	// All retry attempts failed
+	return nil, fmt.Errorf("failed to connect to the database after multiple attempts: %w", err)
 }
 
 func bytesToFloat32(data []byte) float32 {
