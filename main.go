@@ -60,50 +60,56 @@ func initializeApplication() {
 
 func processCommands(archiveChan chan<- models.Command) {
 	for _, command := range c.GlobalConfig.Commands {
-		getData(command)
+		if err := getData(command); err != nil {
+			continue
+		}
 		archiveChan <- command
 	}
 }
 
-func getData(energometer models.Command) {
+func getData(energometer models.Command) error {
 	for retriesLeft := c.GlobalConfig.Max_Read_Retries; retriesLeft > 0; retriesLeft-- {
-		if processEnergometerData(energometer) {
-			return
+		pr, err := processEnergometerData(energometer)
+		if pr && err == nil {
+			return nil
+		} else if pr && err != nil {
+			return err
 		}
 	}
 	handleMaxRetriesReached(energometer)
+	return fmt.Errorf("reached max retries")
 }
 
-func processEnergometerData(energometer models.Command) bool {
+func processEnergometerData(energometer models.Command) (bool, error) {
 	conn, err := createConnection(energometer)
 	if err != nil {
 		log.Error(fmt.Sprintf("Connection setup failed: %s", err.Error()))
-		return false
+		return false, err
 	}
 	defer conn.Close()
 
 	if err := sendCommand(conn, energometer.Current_Data); err != nil {
 		log.Error(fmt.Sprintf("Send command failed: %s", err.Error()))
-		return false
+		return false, err
 	}
 
 	response, err := readResponse(conn)
 	if err != nil {
 		log.Error(fmt.Sprintf("Read response failed: %s", err.Error()))
-		return false
+		return false, err
 	}
 
 	if validateResponse(response) {
 		err := processEnergometerResponse(response, energometer, conn)
 		if err != nil {
-			return false
+			return true, err
 		}
 		updateSuccessfulRetrieval(energometer.Current_Data)
-		return true
+		return true, nil
 	}
 
 	log.Error(fmt.Sprintf("Received wrong data from the energometer: %v", response))
-	return false
+	return false, fmt.Errorf("received wrong data from the energometer: %v", response)
 }
 
 func handleMaxRetriesReached(energometer models.Command) {
