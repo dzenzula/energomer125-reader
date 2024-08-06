@@ -94,7 +94,10 @@ func processEnergometerData(energometer models.Command) bool {
 	}
 
 	if validateResponse(response) {
-		processEnergometerResponse(response, energometer, conn)
+		err := processEnergometerResponse(response, energometer, conn)
+		if err != nil {
+			return false
+		}
 		updateSuccessfulRetrieval(energometer.Current_Data)
 		return true
 	}
@@ -173,18 +176,18 @@ func validateResponse(response []byte) bool {
 	return len(response) >= responseLength
 }
 
-func processEnergometerResponse(response []byte, energometer models.Command, conn *net.TCPConn) {
+func processEnergometerResponse(response []byte, energometer models.Command, conn *net.TCPConn) error {
 	if !isValidResponse(response, conn) {
-		return
+		return fmt.Errorf("response is not valid")
 	}
 
 	if isErrorResponse(response, conn) {
-		return
+		return fmt.Errorf("response has error flag")
 	}
 
 	date, dateTime := processDate(response, conn)
 	if date == "" {
-		return
+		return fmt.Errorf("date is empty")
 	}
 
 	intSlice := convertResponseToIntSlice(response)
@@ -195,9 +198,13 @@ func processEnergometerResponse(response []byte, energometer models.Command, con
 		q1 = 0
 	}
 
-	insertData(q1, energometer, date)
+	err := insertData(q1, energometer, date)
+	if err != nil {
+		return err
+	}
 
 	log.Info(fmt.Sprintf("Date: %s, Command: %s Q1: %f", date, energometer.Current_Data, q1))
+	return nil
 }
 
 func isValidResponse(response []byte, conn *net.TCPConn) bool {
@@ -265,17 +272,25 @@ func closeConnectionIfOpen(conn *net.TCPConn) {
 	}
 }
 
-func insertData(v1 float32, energometer models.Command, date string) {
-	db := ConnectMs()
+func insertData(v1 float32, energometer models.Command, date string) error {
+	db, err := ConnectMs()
+	if err != nil {
+		return err
+	}
 	defer db.Close()
 
-	_, err := db.Exec(c.GlobalConfig.Query_Insert, energometer.Name, energometer.Id_Measuring, v1, date, 192, nil)
+	_, err = db.Exec(c.GlobalConfig.Query_Insert, energometer.Name, energometer.Id_Measuring, v1, date, 192, nil)
 	if err != nil {
 		log.Error(fmt.Sprintf("Error during SQL query execution: %s", err.Error()))
+		return err
 	}
+
+	return nil
 }
 
-func ConnectMs() *sql.DB {
+func ConnectMs() (*sql.DB, error) {
+	var conn *sql.DB
+	retries := 3
 	connString := fmt.Sprintf("server=%s;user id=%s;password=%s;database=%s",
 		c.GlobalConfig.MSSQL.Server,
 		c.GlobalConfig.MSSQL.User_Id,
@@ -285,17 +300,25 @@ func ConnectMs() *sql.DB {
 	conn, err := sql.Open("mssql", connString)
 	if err != nil {
 		log.Error(fmt.Sprintf("Error opening database connection: %s", err.Error()))
-		return nil
+		return nil, err
 	}
 
-	if err := conn.Ping(); err != nil {
+	for {
+		if err := conn.Ping(); err == nil {
+			break
+		}
 		log.Error(err.Error())
+
+		retries--
+		if retries == 0 {
+			return conn, err
+		}
+
 		time.Sleep(10 * time.Second)
 		log.Error("Trying to reconnect to the database...")
-		return ConnectMs()
 	}
 
-	return conn
+	return conn, nil
 }
 
 func bytesToFloat32(data []byte) float32 {
@@ -397,8 +420,7 @@ func calculateTimeDifference(energometer models.Command) int {
 	if !exists {
 		lastRetrieval = time.Now().Add(-1 * time.Hour)
 	}
-	currentRetrieval := currentSuccessfulRetrieval[energometer.Current_Data]
-
+	currentRetrieval := time.Now()
 	lastRetrieval = lastRetrieval.Truncate(time.Hour)
 	currentRetrieval = currentRetrieval.Truncate(time.Hour)
 
@@ -474,9 +496,7 @@ func updateSuccessfulRetrieval(command string) {
 	retrievalMutex.Lock()
 	defer retrievalMutex.Unlock()
 
-	y := currentSuccessfulRetrieval[command].Year()
-
-	if y != 1 {
+	if currentSuccessfulRetrieval[command].Year() == time.Now().Year() {
 		lastSuccessfulRetrieval[command] = currentSuccessfulRetrieval[command]
 	}
 	currentSuccessfulRetrieval[command] = time.Now()
@@ -492,7 +512,7 @@ func saveTimeToFile() {
 	defer retrievalMutex.Unlock()
 
 	storage := TimeStorage{
-		LastSuccessfulRetrieval: lastSuccessfulRetrieval,
+		LastSuccessfulRetrieval: currentSuccessfulRetrieval,
 	}
 
 	data, err := json.MarshalIndent(storage, "", "  ")
