@@ -389,30 +389,34 @@ func processArchives(archiveChan <-chan models.Command) {
 }
 
 func retrieveMissingData(energometer models.Command) {
-	loadTimeFromFile()
-	if !shouldRetrieveData(energometer) {
+	for retriesLeft := c.GlobalConfig.Max_Read_Retries; retriesLeft > 0; retriesLeft-- {
+		loadTimeFromFile()
+		if !shouldRetrieveData(energometer) {
+			return
+		}
+
+		diff := calculateTimeDifference(energometer)
+		if diff <= 1 {
+			return
+		}
+
+		conn, err := setupConnection(energometer)
+		if err != nil {
+			continue
+		}
+		defer conn.Close()
+
+		response, err := getInitialResponse(conn, energometer)
+		if err != nil {
+			continue
+		}
+
+		processEnergometerResponse(response, energometer, conn)
+
+		retrieveArchiveData(conn, energometer, diff, response)
+
 		return
 	}
-
-	diff := calculateTimeDifference(energometer)
-	if diff <= 1 {
-		return
-	}
-
-	conn, err := setupConnection(energometer)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-
-	response, err := getInitialResponse(conn, energometer)
-	if err != nil {
-		return
-	}
-
-	processEnergometerResponse(response, energometer, conn)
-
-	retrieveArchiveData(conn, energometer, diff, response)
 }
 
 func shouldRetrieveData(energometer models.Command) bool {
@@ -432,7 +436,8 @@ func calculateTimeDifference(energometer models.Command) int {
 	currentRetrieval = currentRetrieval.Truncate(time.Hour)
 
 	diff := int(currentRetrieval.Sub(lastRetrieval).Hours())
-	return min(diff, 12)
+	log.Debug(fmt.Sprintf("Time difference: %d", diff))
+	return min(diff, 24)
 }
 
 func setupConnection(energometer models.Command) (*net.TCPConn, error) {
