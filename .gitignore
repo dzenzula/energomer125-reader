@@ -1,10 +1,9 @@
 *.log
-configurations/*.yaml
 .vscode
 *.exe
-energomer125-reader
 deploy/*
 /*.yml
 *.sdb*
-logs
 *.json
+*.yaml
+logs
