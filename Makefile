@@ -12,9 +12,9 @@ run:
 #build_and_run: build run
 
 compile:
-	GOARCH=amd64 GOOS=darwin go build -ldflags "-s -w" -o ${BUILD_NAME} main.go
-	GOARCH=amd64 GOOS=linux go build -ldflags "-s -w" -o ${BUILD_NAME} main.go
-	GOARCH=amd64 GOOS=window go build -ldflags "-s -w" -o ${BUILD_NAME} main.go
+	GOARCH=amd64 GOOS=darwin go build -ldflags "-s -w" -o ${BUILD_NAME} cmd/energomer125-reader/main.go
+	GOARCH=amd64 GOOS=linux go build -ldflags "-s -w" -o ${BUILD_NAME} cmd/energomer125-reader/main.go
+	GOARCH=amd64 GOOS=window go build -ldflags "-s -w" -o ${BUILD_NAME} cmd/energomer125-reader/main.go
 
 install: ${DEPLOY_FILES}
 	mkdir -p ${DEST_DIR}
