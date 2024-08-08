@@ -11,7 +11,7 @@ import (
 
 const (
 	localConfig   string = "c:\\Personal\\energomer125-reader\\configs\\config.yaml"
-	releaseConfig string = "reporting-api.conf.yml"
+	releaseConfig string = "energomer125-reader.conf.yml"
 )
 
 var (
