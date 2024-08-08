@@ -1,12 +1,17 @@
-package configurations
+package config
 
 import (
+	"cmd/energomer125-reader/internal/models"
 	"fmt"
-	"main/models"
 	"os"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
+)
+
+const (
+	localConfig   string = "c:\\Personal\\energomer125-reader\\configs\\config.yaml"
+	releaseConfig string = "reporting-api.conf.yml"
 )
 
 var (
@@ -14,7 +19,7 @@ var (
 )
 
 func InitConfig() {
-	configFiles := []string{"configurations/config.yaml", "config.yaml", "energomer125-reader.conf.yml"}
+	configFiles := []string{localConfig, releaseConfig}
 	var configName string
 	for _, configFile := range configFiles {
 		if _, err := os.Stat(configFile); err == nil {
