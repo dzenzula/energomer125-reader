@@ -27,7 +27,7 @@ func initializeApplication() {
 	log.LogInit(c.GlobalConfig.Log_Level)
 	log.Info("Service started!")
 
-	st.LoadTimeFromFile()
+	st.InitTimeManager()
 }
 
 func wait() {

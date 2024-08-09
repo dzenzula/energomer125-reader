@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
-
 	log "krr-app-gitlab01.europe.mittalco.com/pait/modules/go/logging"
 )
 
@@ -16,20 +15,32 @@ type TimeStorage struct {
 	LastSuccessfulRetrieval map[string]time.Time `yaml:"lastSuccessfulRetrieval"`
 }
 
-var (
-	lastSuccessfulRetrieval    map[string]time.Time = make(map[string]time.Time)
-	currentSuccessfulRetrieval map[string]time.Time = make(map[string]time.Time)
-	retrievalMutex             sync.Mutex
-)
+type TimeManager struct {
+	lastSuccessfulRetrieval    map[string]time.Time
+	currentSuccessfulRetrieval map[string]time.Time
+}
 
 const timeStorageFile = "time_storage.yaml"
 
-func SaveTimeToFile() {
+var (
+	GlobalTimeManager *TimeManager
+	retrievalMutex    sync.Mutex
+)
+
+func InitTimeManager() {
+	GlobalTimeManager = &TimeManager{
+		lastSuccessfulRetrieval:    make(map[string]time.Time),
+		currentSuccessfulRetrieval: make(map[string]time.Time),
+	}
+	GlobalTimeManager.LoadTimeFromFile()
+}
+
+func (tm *TimeManager) SaveTimeToFile() {
 	retrievalMutex.Lock()
 	defer retrievalMutex.Unlock()
 
 	storage := TimeStorage{
-		LastSuccessfulRetrieval: currentSuccessfulRetrieval,
+		LastSuccessfulRetrieval: tm.currentSuccessfulRetrieval,
 	}
 
 	data, err := yaml.Marshal(&storage)
@@ -47,12 +58,12 @@ func SaveTimeToFile() {
 	log.Debug("Time data successfully saved to file.")
 }
 
-func LoadTimeFromFile() {
+func (tm *TimeManager) LoadTimeFromFile() {
 	data, err := os.ReadFile(timeStorageFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			log.Info("Time storage file not found. Creating a new one.")
-			SaveTimeToFile()
+			tm.SaveTimeToFile()
 			return
 		}
 		log.Error(fmt.Sprintf("Error reading time data from file: %s", err))
@@ -69,35 +80,45 @@ func LoadTimeFromFile() {
 	retrievalMutex.Lock()
 	defer retrievalMutex.Unlock()
 
-	lastSuccessfulRetrieval = storage.LastSuccessfulRetrieval
+	tm.lastSuccessfulRetrieval = storage.LastSuccessfulRetrieval
 }
 
-func GetLastSuccessfulRetrieval() map[string]time.Time {
+func (tm *TimeManager) GetLastSuccessfulRetrieval() map[string]time.Time {
 	retrievalMutex.Lock()
 	defer retrievalMutex.Unlock()
 
-	return lastSuccessfulRetrieval
+	// Возвращаем копию карты
+	result := make(map[string]time.Time)
+	for k, v := range tm.lastSuccessfulRetrieval {
+		result[k] = v
+	}
+	return result
 }
 
-func GetCurrentSuccessfulRetrieval() map[string]time.Time {
+func (tm *TimeManager) GetCurrentSuccessfulRetrieval() map[string]time.Time {
 	retrievalMutex.Lock()
 	defer retrievalMutex.Unlock()
 
-	return currentSuccessfulRetrieval
+	// Возвращаем копию карты
+	result := make(map[string]time.Time)
+	for k, v := range tm.currentSuccessfulRetrieval {
+		result[k] = v
+	}
+	return result
 }
 
-func SetCurrentSuccessfulRetrieval(energomer models.Command, setTime time.Time) {
+func (tm *TimeManager) SetCurrentSuccessfulRetrieval(energomer models.Command, setTime time.Time) {
 	retrievalMutex.Lock()
 	defer retrievalMutex.Unlock()
 
-	currentSuccessfulRetrieval[energomer.Current_Data] = setTime
+	tm.currentSuccessfulRetrieval[energomer.Current_Data] = setTime
 }
 
-func CalculateTimeDifference(energomer models.Command) int {
+func (tm *TimeManager) CalculateTimeDifference(energomer models.Command) int {
 	retrievalMutex.Lock()
 	defer retrievalMutex.Unlock()
 
-	lastRetrieval, exists := lastSuccessfulRetrieval[energomer.Current_Data]
+	lastRetrieval, exists := tm.lastSuccessfulRetrieval[energomer.Current_Data]
 	if !exists {
 		lastRetrieval = time.Now().Add(-1 * time.Hour)
 	}
@@ -110,17 +131,28 @@ func CalculateTimeDifference(energomer models.Command) int {
 	return min(diff, 24)
 }
 
-func UpdateSuccessfulRetrieval(command string) {
+func (tm *TimeManager) UpdateSuccessfulRetrieval(command string) {
 	retrievalMutex.Lock()
 	defer retrievalMutex.Unlock()
 
-	if currentSuccessfulRetrieval[command].Year() == time.Now().Year() {
-		lastSuccessfulRetrieval[command] = currentSuccessfulRetrieval[command]
+	if tm.lastSuccessfulRetrieval == nil {
+		tm.lastSuccessfulRetrieval = make(map[string]time.Time)
 	}
-	currentSuccessfulRetrieval[command] = time.Now()
 
-	log.Debug(fmt.Sprintf("Last successful retrieval: %s", lastSuccessfulRetrieval[command].String()))
-	log.Debug(fmt.Sprintf("Current successful retrieval: %s", currentSuccessfulRetrieval[command].String()))
+	if tm.currentSuccessfulRetrieval[command].Year() == time.Now().Year() {
+		tm.lastSuccessfulRetrieval[command] = tm.currentSuccessfulRetrieval[command]
+	}
+	tm.currentSuccessfulRetrieval[command] = time.Now()
 
-	go SaveTimeToFile()
+	log.Debug(fmt.Sprintf("Last successful retrieval: %s", tm.lastSuccessfulRetrieval[command].String()))
+	log.Debug(fmt.Sprintf("Current successful retrieval: %s", tm.currentSuccessfulRetrieval[command].String()))
+
+	go tm.SaveTimeToFile()
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

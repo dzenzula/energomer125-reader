@@ -22,13 +22,13 @@ func ProcessArchives(archiveChan <-chan models.Command) {
 
 func retrieveMissingData(energomer models.Command) {
 	for retriesLeft := c.GlobalConfig.Max_Read_Retries; retriesLeft > 0; retriesLeft-- {
-		st.LoadTimeFromFile()
-		current := st.GetCurrentSuccessfulRetrieval()
+		st.GlobalTimeManager.LoadTimeFromFile()
+		current := st.GlobalTimeManager.GetCurrentSuccessfulRetrieval()
 		if current[energomer.Current_Data].Year() != time.Now().Year() {
 			return
 		}
 
-		diff := st.CalculateTimeDifference(energomer)
+		diff := st.GlobalTimeManager.CalculateTimeDifference(energomer)
 		if diff <= 1 {
 			return
 		}
