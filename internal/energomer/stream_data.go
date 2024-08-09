@@ -16,7 +16,7 @@ func ProcessCommands(archiveChan chan<- models.Command) {
 	for _, energomer := range config.GlobalConfig.Commands {
 		if err := getStreamData(energomer); err == nil {
 			archiveChan <- energomer
-			st.UpdateSuccessfulRetrieval(energomer.Current_Data)
+			st.GlobalTimeManager.UpdateSuccessfulRetrieval(energomer.Current_Data)
 		}
 	}
 }
@@ -47,7 +47,7 @@ func getStreamData(energomer models.Command) error {
 			log.Error(err.Error())
 			continue
 		}
-		
+
 		return nil
 	}
 	handleMaxRetriesReached(energomer)
@@ -55,6 +55,6 @@ func getStreamData(energomer models.Command) error {
 }
 
 func handleMaxRetriesReached(energomer models.Command) {
-	st.SetCurrentSuccessfulRetrieval(energomer, time.Date(1, 0, 0, 0, 0, 0, 0, time.Local))
+	st.GlobalTimeManager.SetCurrentSuccessfulRetrieval(energomer, time.Date(1, 0, 0, 0, 0, 0, 0, time.Local))
 	log.Error("Reached maximum retries, unable to retrieve valid data.")
 }
