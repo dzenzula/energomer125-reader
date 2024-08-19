@@ -36,11 +36,20 @@ func InitTimeManager() {
 }
 
 func (tm *TimeManager) SaveTimeToFile() {
-	retrievalMutex.Lock()
-	defer retrievalMutex.Unlock()
+	log.Debug("Saving time to file....")
+
+	//retrievalMutex.Lock()
+	//defer retrievalMutex.Unlock()
+
+	for command, currentTime := range tm.currentSuccessfulRetrieval {
+		// Проверка на пустое время
+		if !currentTime.IsZero() && currentTime.After(tm.lastSuccessfulRetrieval[command]) {
+			tm.lastSuccessfulRetrieval[command] = currentTime
+		}
+	}
 
 	storage := TimeStorage{
-		LastSuccessfulRetrieval: tm.currentSuccessfulRetrieval,
+		LastSuccessfulRetrieval: tm.lastSuccessfulRetrieval,
 	}
 
 	data, err := yaml.Marshal(&storage)
@@ -139,15 +148,16 @@ func (tm *TimeManager) UpdateSuccessfulRetrieval(command string) {
 		tm.lastSuccessfulRetrieval = make(map[string]time.Time)
 	}
 
-	if tm.currentSuccessfulRetrieval[command].Year() == time.Now().Year() {
+	if !tm.currentSuccessfulRetrieval[command].IsZero() && tm.currentSuccessfulRetrieval[command].Year() == time.Now().Year() {
 		tm.lastSuccessfulRetrieval[command] = tm.currentSuccessfulRetrieval[command]
 	}
+
 	tm.currentSuccessfulRetrieval[command] = time.Now()
 
 	log.Debug(fmt.Sprintf("Last successful retrieval: %s", tm.lastSuccessfulRetrieval[command].String()))
 	log.Debug(fmt.Sprintf("Current successful retrieval: %s", tm.currentSuccessfulRetrieval[command].String()))
 
-	go tm.SaveTimeToFile()
+	tm.SaveTimeToFile()
 }
 
 func min(a, b int) int {
