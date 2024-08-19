@@ -33,7 +33,7 @@ func getStreamData(energomer models.Command) error {
 
 		if err := cm.SendCommand(energomer.Current_Data); err != nil {
 			log.Error(fmt.Sprintf("Send command failed: %s", err.Error()))
-			continue
+			return err
 		}
 
 		response, err := cm.ReadResponse(energomer.Last_Hour_Archive)

@@ -39,7 +39,6 @@ func retrieveMissingData(energomer models.Command) {
 			log.Error(err.Error())
 			continue
 		}
-		defer cm.CloseConnection()
 
 		err = cm.SendCommand(energomer.Last_Hour_Archive)
 		if err != nil {
@@ -59,6 +58,8 @@ func retrieveMissingData(energomer models.Command) {
 			continue
 		}
 
+		cm.CloseConnection()
+
 		retrieveArchiveData(energomer, diff, response)
 
 		return
@@ -67,6 +68,13 @@ func retrieveMissingData(energomer models.Command) {
 
 func retrieveArchiveData(energomer models.Command, diff int, response []byte) {
 	for i := 0; i < diff; i++ {
+		cm = network.NewConnectionManager()
+		err := cm.SetupConnection(energomer)
+		if err != nil {
+			log.Error(err.Error())
+			continue
+		}
+
 		if !rh.IsValidDateTime(response) {
 			i--
 			continue
@@ -91,5 +99,7 @@ func retrieveArchiveData(energomer models.Command, diff int, response []byte) {
 			log.Error(err.Error())
 			continue
 		}
+
+		cm.CloseConnection()
 	}
 }
