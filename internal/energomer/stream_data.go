@@ -15,7 +15,9 @@ import (
 func ProcessCommands(archiveChan chan<- models.Command) {
 	for _, energomer := range config.GlobalConfig.Commands {
 		if err := getStreamData(energomer); err == nil {
-			archiveChan <- energomer
+			if inProcess, ok := ArchiveInProcess.Load(energomer.Current_Data); !ok || !inProcess.(bool) {
+				archiveChan <- energomer
+			}
 			st.GlobalTimeManager.UpdateSuccessfulRetrieval(energomer.Current_Data)
 		}
 	}
