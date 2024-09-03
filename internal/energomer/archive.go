@@ -111,6 +111,7 @@ func retrieveArchiveData(energomer models.Command, diff int, response []byte, cm
 		if err != nil {
 			i--
 			log.Error(err.Error())
+			time.Sleep(time.Second * 10)
 			continue
 		}
 	}
