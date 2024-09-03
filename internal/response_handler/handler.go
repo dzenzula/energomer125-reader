@@ -56,6 +56,8 @@ func isValidResponse(response []byte) bool {
 func isErrorResponse(response []byte) bool {
 	if response[9] == 1 {
 		log.Error("This response has error flag!")
+		intSlice := convertResponseToIntSlice(response)
+		log.Error(fmt.Sprintf("Received data from the energometer: %d", intSlice))
 		return true
 	}
 	return false
